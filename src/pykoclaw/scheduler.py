@@ -47,32 +47,32 @@ async def run_task(task: dict, db: sqlite3.Connection, data_dir: Path) -> None:
         options = ClaudeAgentOptions(
             cwd=str(conv_dir),
             permission_mode="bypassPermissions",
-            mcp_servers=[make_mcp_server(db, conversation_name)],
+            mcp_servers={"pykoclaw": make_mcp_server(db, conversation_name)},
             model=os.environ.get("PYKOCLAW_MODEL", "claude-opus-4-6"),
             allowed_tools=[
-                "bash",
-                "read",
-                "write",
-                "edit",
-                "glob",
-                "grep",
-                "web_search",
-                "web_fetch",
+                "Bash",
+                "Read",
+                "Write",
+                "Edit",
+                "Glob",
+                "Grep",
+                "WebSearch",
+                "WebFetch",
                 "mcp__pykoclaw__*",
             ],
             setting_sources=["project"],
             resume=session_id,
         )
 
-        client = ClaudeSDKClient(options)
-        client.query(prompt)
+        async with ClaudeSDKClient(options) as client:
+            await client.query(prompt)
 
-        async for message in client.receive_response():
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        result_text += block.text
-                        print(f"[task:{task_id}] {block.text}")
+            async for message in client.receive_response():
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock):
+                            result_text += block.text
+                            print(f"[task:{task_id}] {block.text}")
 
         now = datetime.now(timezone.utc)
         if schedule_type == "cron":
