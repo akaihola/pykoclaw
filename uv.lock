@@ -478,7 +478,7 @@ dependencies = [
     { name = "croniter" },
 ]
 
-[package.optional-dependencies]
+[package.dev-dependencies]
 dev = [
     { name = "pytest" },
 ]
@@ -488,9 +488,10 @@ requires-dist = [
     { name = "claude-agent-sdk" },
     { name = "click" },
     { name = "croniter" },
-    { name = "pytest", marker = "extra == 'dev'" },
 ]
-provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest" }]
 
 [[package]]
 name = "pytest"
