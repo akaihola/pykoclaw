@@ -1,7 +1,10 @@
+import atexit
+import re
+import readline
 import sqlite3
-import sys
 from pathlib import Path
 
+import click
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
@@ -15,9 +18,27 @@ from pykoclaw.db import upsert_conversation
 from pykoclaw.tools import make_mcp_server
 
 
+def _setup_readline(history_path: Path) -> None:
+    """Configure readline with persistent history."""
+    history_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        readline.read_history_file(history_path)
+    except FileNotFoundError:
+        pass
+    readline.set_history_length(1000)
+    atexit.register(readline.write_history_file, str(history_path))
+
+
+def _readline_prompt(styled: str) -> str:
+    """Wrap ANSI escapes with readline markers so prompt width is correct."""
+    return re.sub(r"\x1b\[[0-9;]*m", lambda m: f"\x01{m.group()}\x02", styled)
+
+
 async def run_conversation(name: str, db: sqlite3.Connection, data_dir: Path) -> None:
     conv_dir = data_dir / "conversations" / name
     conv_dir.mkdir(parents=True, exist_ok=True)
+
+    _setup_readline(data_dir / "history")
 
     global_claude_md = data_dir / "CLAUDE.md"
     if not global_claude_md.exists():
@@ -50,12 +71,14 @@ async def run_conversation(name: str, db: sqlite3.Connection, data_dir: Path) ->
         system_prompt=system_prompt,
     )
 
+    prompt = _readline_prompt(click.style("> ", fg="green", bold=True))
+
     async with ClaudeSDKClient(options) as client:
         while True:
-            print("> ", end="", flush=True, file=sys.stderr)
             try:
-                user_input = input()
-            except EOFError:
+                user_input = input(prompt)
+            except (EOFError, KeyboardInterrupt):
+                click.echo()
                 break
 
             if not user_input:
@@ -67,8 +90,8 @@ async def run_conversation(name: str, db: sqlite3.Connection, data_dir: Path) ->
                 if isinstance(message, AssistantMessage):
                     for block in message.content:
                         if isinstance(block, TextBlock):
-                            print(block.text, end="")
+                            click.echo(click.style(block.text, fg="cyan"), nl=False)
                 elif isinstance(message, ResultMessage):
                     upsert_conversation(db, name, message.session_id, str(conv_dir))
 
-            print()
+            click.echo()
