@@ -1,14 +1,9 @@
-import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from textwrap import dedent
 
-
-def _data_dir() -> Path:
-    return Path(os.environ.get("PYKOCLAW_DATA", "")) or (
-        Path.home() / ".local" / "share" / "pykoclaw"
-    )
+from pykoclaw.models import Conversation, ScheduledTask
 
 
 def init_db(db_path: Path) -> sqlite3.Connection:
@@ -77,14 +72,14 @@ def upsert_conversation(
     db.commit()
 
 
-def get_conversation(db: sqlite3.Connection, name: str) -> dict[str, object] | None:
+def get_conversation(db: sqlite3.Connection, name: str) -> Conversation | None:
     row = db.execute("SELECT * FROM conversations WHERE name = ?", (name,)).fetchone()
-    return dict(row) if row else None
+    return Conversation(**row) if row else None
 
 
-def list_conversations(db: sqlite3.Connection) -> list[dict[str, object]]:
+def list_conversations(db: sqlite3.Connection) -> list[Conversation]:
     rows = db.execute("SELECT * FROM conversations ORDER BY created_at DESC").fetchall()
-    return [dict(row) for row in rows]
+    return [Conversation(**row) for row in rows]
 
 
 def create_task(
@@ -95,7 +90,7 @@ def create_task(
     prompt: str,
     schedule_type: str,
     schedule_value: str,
-    next_run: str,
+    next_run: str | None,
     context_mode: str = "isolated",
 ) -> None:
     now = datetime.now(timezone.utc).isoformat()
@@ -119,26 +114,26 @@ def create_task(
     db.commit()
 
 
-def get_task(db: sqlite3.Connection, id: str) -> dict[str, object] | None:
+def get_task(db: sqlite3.Connection, id: str) -> ScheduledTask | None:
     row = db.execute("SELECT * FROM scheduled_tasks WHERE id = ?", (id,)).fetchone()
-    return dict(row) if row else None
+    return ScheduledTask(**row) if row else None
 
 
 def get_tasks_for_conversation(
     db: sqlite3.Connection, conversation: str
-) -> list[dict[str, object]]:
+) -> list[ScheduledTask]:
     rows = db.execute(
         "SELECT * FROM scheduled_tasks WHERE conversation = ? ORDER BY created_at DESC",
         (conversation,),
     ).fetchall()
-    return [dict(row) for row in rows]
+    return [ScheduledTask(**row) for row in rows]
 
 
-def get_all_tasks(db: sqlite3.Connection) -> list[dict[str, object]]:
+def get_all_tasks(db: sqlite3.Connection) -> list[ScheduledTask]:
     rows = db.execute(
         "SELECT * FROM scheduled_tasks ORDER BY created_at DESC"
     ).fetchall()
-    return [dict(row) for row in rows]
+    return [ScheduledTask(**row) for row in rows]
 
 
 def update_task(db: sqlite3.Connection, id: str, **updates: object) -> None:
@@ -164,7 +159,7 @@ def delete_task(db: sqlite3.Connection, id: str) -> None:
     db.commit()
 
 
-def get_due_tasks(db: sqlite3.Connection) -> list[dict[str, object]]:
+def get_due_tasks(db: sqlite3.Connection) -> list[ScheduledTask]:
     now = datetime.now(timezone.utc).isoformat()
     rows = db.execute(
         dedent("""\
@@ -174,7 +169,7 @@ def get_due_tasks(db: sqlite3.Connection) -> list[dict[str, object]]:
     """),
         (now,),
     ).fetchall()
-    return [dict(row) for row in rows]
+    return [ScheduledTask(**row) for row in rows]
 
 
 def update_task_after_run(

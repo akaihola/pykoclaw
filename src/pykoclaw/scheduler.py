@@ -1,10 +1,8 @@
 import asyncio
-import os
 import sqlite3
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
-from textwrap import dedent
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -12,33 +10,29 @@ from claude_agent_sdk import (
     ClaudeSDKClient,
     TextBlock,
 )
-from croniter import croniter
 
+from pykoclaw.config import settings
 from pykoclaw.db import (
     get_conversation,
     get_due_tasks,
     log_task_run,
     update_task_after_run,
 )
+from pykoclaw.models import ScheduledTask
+from pykoclaw.scheduling import compute_next_run
 from pykoclaw.tools import make_mcp_server
 
 
-async def run_task(task: dict, db: sqlite3.Connection, data_dir: Path) -> None:
+async def run_task(task: ScheduledTask, db: sqlite3.Connection, data_dir: Path) -> None:
     start_time = datetime.now(timezone.utc)
-    task_id = task["id"]
-    conversation_name = task["conversation"]
-    prompt = task["prompt"]
-    schedule_type = task["schedule_type"]
-    schedule_value = task["schedule_value"]
-    context_mode = task["context_mode"]
 
-    conv_dir = data_dir / "conversations" / conversation_name
+    conv_dir = data_dir / "conversations" / task.conversation
     conv_dir.mkdir(parents=True, exist_ok=True)
 
-    conv = get_conversation(db, conversation_name)
+    conv = get_conversation(db, task.conversation)
     session_id = None
-    if context_mode == "group" and conv and conv["session_id"]:
-        session_id = conv["session_id"]
+    if task.context_mode == "group" and conv and conv.session_id:
+        session_id = conv.session_id
 
     result_text = ""
     error_msg = None
@@ -47,8 +41,8 @@ async def run_task(task: dict, db: sqlite3.Connection, data_dir: Path) -> None:
         options = ClaudeAgentOptions(
             cwd=str(conv_dir),
             permission_mode="bypassPermissions",
-            mcp_servers={"pykoclaw": make_mcp_server(db, conversation_name)},
-            model=os.environ.get("PYKOCLAW_MODEL", "claude-opus-4-6"),
+            mcp_servers={"pykoclaw": make_mcp_server(db, task.conversation)},
+            model=settings.model,
             allowed_tools=[
                 "Bash",
                 "Read",
@@ -65,21 +59,17 @@ async def run_task(task: dict, db: sqlite3.Connection, data_dir: Path) -> None:
         )
 
         async with ClaudeSDKClient(options) as client:
-            await client.query(prompt)
+            await client.query(task.prompt)
 
             async for message in client.receive_response():
                 if isinstance(message, AssistantMessage):
                     for block in message.content:
                         if isinstance(block, TextBlock):
                             result_text += block.text
-                            print(f"[task:{task_id}] {block.text}")
+                            print(f"[task:{task.id}] {block.text}")
 
-        now = datetime.now(timezone.utc)
-        if schedule_type == "cron":
-            cron = croniter(schedule_value, now)
-            next_run = cron.get_next(datetime).isoformat()
-        elif schedule_type == "interval":
-            next_run = (now + timedelta(milliseconds=int(schedule_value))).isoformat()
+        if task.schedule_type in ("cron", "interval"):
+            next_run = compute_next_run(task.schedule_type, task.schedule_value)
         else:
             next_run = None
 
@@ -92,10 +82,10 @@ async def run_task(task: dict, db: sqlite3.Connection, data_dir: Path) -> None:
 
     duration_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
 
-    update_task_after_run(db, task_id, next_run, result_summary)
+    update_task_after_run(db, task.id, next_run, result_summary)
     log_task_run(
         db,
-        task_id=task_id,
+        task_id=task.id,
         run_at=start_time.isoformat(),
         duration_ms=duration_ms,
         status="error" if error_msg else "success",

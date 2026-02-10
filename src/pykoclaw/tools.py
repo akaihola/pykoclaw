@@ -1,18 +1,18 @@
 import sqlite3
 import uuid
-from datetime import datetime, timedelta, timezone
 from textwrap import dedent
 from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
-from croniter import croniter
 
 from pykoclaw.db import (
     create_task,
     delete_task,
+    get_task,
     get_tasks_for_conversation,
     update_task,
 )
+from pykoclaw.scheduling import compute_next_run
 
 
 def make_mcp_server(db: sqlite3.Connection, conversation: str):
@@ -32,15 +32,7 @@ def make_mcp_server(db: sqlite3.Connection, conversation: str):
         task_id = uuid.uuid4().hex[:8]
         schedule_type = args["schedule_type"]
         schedule_value = args["schedule_value"]
-        now = datetime.now(timezone.utc)
-
-        if schedule_type == "cron":
-            cron = croniter(schedule_value, now)
-            next_run = cron.get_next(datetime).isoformat()
-        elif schedule_type == "interval":
-            next_run = (now + timedelta(milliseconds=int(schedule_value))).isoformat()
-        else:
-            next_run = schedule_value
+        next_run = compute_next_run(schedule_type, schedule_value)
 
         create_task(
             db,
@@ -75,7 +67,7 @@ def make_mcp_server(db: sqlite3.Connection, conversation: str):
         lines = ["Tasks:"]
         for task in tasks:
             lines.append(
-                f"  {task['id']}: {task['prompt'][:50]} ({task['status']}, next: {task['next_run']})"
+                f"  {task.id}: {task.prompt[:50]} ({task.status}, next: {task.next_run})"
             )
 
         return {"content": [{"type": "text", "text": "\n".join(lines)}]}
@@ -98,25 +90,12 @@ def make_mcp_server(db: sqlite3.Connection, conversation: str):
     )
     async def resume_task(args: dict[str, Any]) -> dict[str, Any]:
         task_id = args["task_id"]
-        task = db.execute(
-            "SELECT * FROM scheduled_tasks WHERE id = ?", (task_id,)
-        ).fetchone()
+        task = get_task(db, task_id)
 
         if not task:
             return {"content": [{"type": "text", "text": f"Task {task_id} not found."}]}
 
-        now = datetime.now(timezone.utc)
-        schedule_type = task["schedule_type"]
-        schedule_value = task["schedule_value"]
-
-        if schedule_type == "cron":
-            cron = croniter(schedule_value, now)
-            next_run = cron.get_next(datetime).isoformat()
-        elif schedule_type == "interval":
-            next_run = (now + timedelta(milliseconds=int(schedule_value))).isoformat()
-        else:
-            next_run = schedule_value
-
+        next_run = compute_next_run(task.schedule_type, task.schedule_value)
         update_task(db, task_id, status="active", next_run=next_run)
         return {
             "content": [

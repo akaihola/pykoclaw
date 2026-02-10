@@ -1,4 +1,3 @@
-import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -11,6 +10,7 @@ from claude_agent_sdk import (
     TextBlock,
 )
 
+from pykoclaw.config import settings
 from pykoclaw.db import upsert_conversation
 from pykoclaw.tools import make_mcp_server
 
@@ -34,7 +34,7 @@ async def run_conversation(name: str, db: sqlite3.Connection, data_dir: Path) ->
         cwd=str(conv_dir),
         permission_mode="bypassPermissions",
         mcp_servers={"pykoclaw": make_mcp_server(db, name)},
-        model=os.environ.get("PYKOCLAW_MODEL", "claude-opus-4-6"),
+        model=settings.model,
         allowed_tools=[
             "Bash",
             "Read",

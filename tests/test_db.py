@@ -39,13 +39,13 @@ def test_conversation_crud(db: sqlite3.Connection) -> None:
     upsert_conversation(db, "test", "sess-1", "/tmp/test")
     conv = get_conversation(db, "test")
     assert conv is not None
-    assert conv["name"] == "test"
-    assert conv["session_id"] == "sess-1"
-    assert conv["cwd"] == "/tmp/test"
+    assert conv.name == "test"
+    assert conv.session_id == "sess-1"
+    assert conv.cwd == "/tmp/test"
 
     convs = list_conversations(db)
     assert len(convs) == 1
-    assert convs[0]["name"] == "test"
+    assert convs[0].name == "test"
 
 
 def test_task_crud(db: sqlite3.Connection) -> None:
@@ -62,21 +62,22 @@ def test_task_crud(db: sqlite3.Connection) -> None:
 
     task = get_task(db, "t1")
     assert task is not None
-    assert task["id"] == "t1"
-    assert task["conversation"] == "test"
-    assert task["prompt"] == "hello"
-    assert task["status"] == "active"
+    assert task.id == "t1"
+    assert task.conversation == "test"
+    assert task.prompt == "hello"
+    assert task.status == "active"
 
     tasks = get_tasks_for_conversation(db, "test")
     assert len(tasks) == 1
-    assert tasks[0]["id"] == "t1"
+    assert tasks[0].id == "t1"
 
     all_tasks = get_all_tasks(db)
     assert len(all_tasks) == 1
 
     update_task(db, "t1", status="paused")
     task = get_task(db, "t1")
-    assert task["status"] == "paused"
+    assert task is not None
+    assert task.status == "paused"
 
     delete_task(db, "t1")
     task = get_task(db, "t1")
@@ -97,7 +98,7 @@ def test_due_tasks(db: sqlite3.Connection) -> None:
 
     due = get_due_tasks(db)
     assert len(due) == 1
-    assert due[0]["id"] == "t1"
+    assert due[0].id == "t1"
 
 
 def test_log_task_run(db: sqlite3.Connection) -> None:

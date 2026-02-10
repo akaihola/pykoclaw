@@ -3,7 +3,7 @@ name = "pykoclaw"
 version = "0.1.0"
 description = "Python CLI AI agent"
 requires-python = ">=3.12"
-dependencies = ["claude-agent-sdk", "click", "croniter"]
+dependencies = ["claude-agent-sdk", "click", "croniter", "pydantic", "pydantic-settings"]
 
 [project.scripts]
 pykoclaw = "pykoclaw.__main__:main"
