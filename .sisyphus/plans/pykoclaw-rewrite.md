@@ -184,7 +184,7 @@ Wave 4 (After Wave 3):
 
 ## TODOs
 
-- [ ] 0. Validate SDK session resume across process restarts
+- [x] 0. Validate SDK session resume across process restarts (RESULT: resume BROKEN in SDK, works in CLI. Multi-turn must stay within same client instance.)
 
   **What to do**:
   - Write a standalone Python script that:
@@ -239,7 +239,7 @@ Wave 4 (After Wave 3):
 
 ---
 
-- [ ] 1. Create project skeleton with pyproject.toml
+- [x] 1. Create project skeleton with pyproject.toml
 
   **What to do**:
   - Create `pyproject.toml` with:
@@ -299,7 +299,7 @@ Wave 4 (After Wave 3):
 
 ---
 
-- [ ] 2. Implement SQLite database layer
+- [x] 2. Implement SQLite database layer
 
   **What to do**:
   - Create `src/pykoclaw/db.py` with functions:
@@ -369,7 +369,7 @@ Wave 4 (After Wave 3):
 
 ---
 
-- [ ] 3. Implement custom MCP tools for scheduler
+- [x] 3. Implement custom MCP tools for scheduler
 
   **What to do**:
   - Create `src/pykoclaw/tools.py` with:
@@ -428,7 +428,7 @@ Wave 4 (After Wave 3):
 
 ---
 
-- [ ] 4. Implement agent conversation loop
+- [x] 4. Implement agent conversation loop
 
   **What to do**:
   - Create `src/pykoclaw/agent.py` with:
@@ -525,7 +525,7 @@ Wave 4 (After Wave 3):
 
 ---
 
-- [ ] 5. Implement scheduler process
+- [x] 5. Implement scheduler process
 
   **What to do**:
   - Create `src/pykoclaw/scheduler.py` with:
@@ -608,7 +608,7 @@ Wave 4 (After Wave 3):
 
 ---
 
-- [ ] 6. Implement CLAUDE.md memory hierarchy
+- [x] 6. Implement CLAUDE.md memory hierarchy
 
   **What to do**:
   - Create `{data_dir}/CLAUDE.md` template on first run (brief instruction text)
@@ -660,7 +660,7 @@ Wave 4 (After Wave 3):
 
 ---
 
-- [ ] 7. Wire CLI entrypoint with argparse
+- [x] 7. Wire CLI entrypoint with argparse
 
   **What to do**:
   - Update `src/pykoclaw/__main__.py`:
@@ -735,7 +735,7 @@ Wave 4 (After Wave 3):
 
 ---
 
-- [ ] 8. Add smoke tests
+- [x] 8. Add smoke tests
 
   **What to do**:
   - Create `tests/test_db.py`:
