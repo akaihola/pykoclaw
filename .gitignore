@@ -1,0 +1,12 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+
+# Database (generated at runtime)
+*.db
+
+# Conversation logs (generated at runtime)
+conversations/
