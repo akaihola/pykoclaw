@@ -7,6 +7,7 @@ import click
 from pykoclaw.agent import run_conversation
 from pykoclaw.config import settings
 from pykoclaw.db import init_db, list_conversations, get_all_tasks
+from pykoclaw.plugins import load_plugins, run_db_migrations
 from pykoclaw.scheduler import run_scheduler
 
 
@@ -18,6 +19,11 @@ def _get_db_and_data_dir() -> tuple[sqlite3.Connection, Path]:
 @click.pass_context
 def main(ctx: click.Context) -> None:
     """pykoclaw — Python CLI AI agent"""
+    plugins = load_plugins()
+    db, _ = _get_db_and_data_dir()
+    run_db_migrations(db, plugins)
+    for plugin in plugins:
+        plugin.register_commands(main)
     if not ctx.invoked_subcommand:
         click.echo(ctx.get_help())
 
