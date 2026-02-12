@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     model_config = {
+        "extra": "ignore",
         "env_prefix": "PYKOCLAW_",
         "env_file": (
             str(Path.home() / ".local" / "share" / "pykoclaw" / ".env"),
