@@ -1,15 +1,69 @@
+from __future__ import annotations
+
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from textwrap import dedent
+from typing import Any
 
 from pykoclaw.models import Conversation, ScheduledTask
 
 
-def init_db(db_path: Path) -> sqlite3.Connection:
+class ThreadSafeConnection:
+    """Thin wrapper around :class:`sqlite3.Connection` that serialises access
+    with a :class:`threading.Lock`.
+
+    All public methods that touch the underlying connection acquire the lock
+    first, making it safe to share a single instance across threads (Go
+    callback thread, asyncio event-loop thread, main thread).
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+        self._lock = threading.Lock()
+
+    def execute(self, sql: str, parameters: Any = ()) -> sqlite3.Cursor:
+        with self._lock:
+            return self._conn.execute(sql, parameters)
+
+    def executemany(self, sql: str, seq_of_parameters: Any) -> sqlite3.Cursor:
+        with self._lock:
+            return self._conn.executemany(sql, seq_of_parameters)
+
+    def executescript(self, sql_script: str) -> sqlite3.Cursor:
+        with self._lock:
+            return self._conn.executescript(sql_script)
+
+    def commit(self) -> None:
+        with self._lock:
+            self._conn.commit()
+
+    def rollback(self) -> None:
+        with self._lock:
+            self._conn.rollback()
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+    @property
+    def row_factory(self) -> Any:
+        return self._conn.row_factory
+
+    @row_factory.setter
+    def row_factory(self, value: Any) -> None:
+        self._conn.row_factory = value
+
+
+DbConnection = sqlite3.Connection | ThreadSafeConnection
+
+
+def init_db(db_path: Path) -> ThreadSafeConnection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(str(db_path))
-    db.row_factory = sqlite3.Row
+    raw = sqlite3.connect(str(db_path), check_same_thread=False)
+    raw.row_factory = sqlite3.Row
+    db = ThreadSafeConnection(raw)
 
     db.executescript(
         dedent("""\
@@ -55,9 +109,7 @@ def init_db(db_path: Path) -> sqlite3.Connection:
     return db
 
 
-def upsert_conversation(
-    db: sqlite3.Connection, name: str, session_id: str, cwd: str
-) -> None:
+def upsert_conversation(db: DbConnection, name: str, session_id: str, cwd: str) -> None:
     now = datetime.now(timezone.utc).isoformat()
     db.execute(
         dedent("""\
@@ -72,18 +124,18 @@ def upsert_conversation(
     db.commit()
 
 
-def get_conversation(db: sqlite3.Connection, name: str) -> Conversation | None:
+def get_conversation(db: DbConnection, name: str) -> Conversation | None:
     row = db.execute("SELECT * FROM conversations WHERE name = ?", (name,)).fetchone()
     return Conversation(**row) if row else None
 
 
-def list_conversations(db: sqlite3.Connection) -> list[Conversation]:
+def list_conversations(db: DbConnection) -> list[Conversation]:
     rows = db.execute("SELECT * FROM conversations ORDER BY created_at DESC").fetchall()
     return [Conversation(**row) for row in rows]
 
 
 def create_task(
-    db: sqlite3.Connection,
+    db: DbConnection,
     *,
     id: str,
     conversation: str,
@@ -114,13 +166,13 @@ def create_task(
     db.commit()
 
 
-def get_task(db: sqlite3.Connection, id: str) -> ScheduledTask | None:
+def get_task(db: DbConnection, id: str) -> ScheduledTask | None:
     row = db.execute("SELECT * FROM scheduled_tasks WHERE id = ?", (id,)).fetchone()
     return ScheduledTask(**row) if row else None
 
 
 def get_tasks_for_conversation(
-    db: sqlite3.Connection, conversation: str
+    db: DbConnection, conversation: str
 ) -> list[ScheduledTask]:
     rows = db.execute(
         "SELECT * FROM scheduled_tasks WHERE conversation = ? ORDER BY created_at DESC",
@@ -129,14 +181,14 @@ def get_tasks_for_conversation(
     return [ScheduledTask(**row) for row in rows]
 
 
-def get_all_tasks(db: sqlite3.Connection) -> list[ScheduledTask]:
+def get_all_tasks(db: DbConnection) -> list[ScheduledTask]:
     rows = db.execute(
         "SELECT * FROM scheduled_tasks ORDER BY created_at DESC"
     ).fetchall()
     return [ScheduledTask(**row) for row in rows]
 
 
-def update_task(db: sqlite3.Connection, id: str, **updates: object) -> None:
+def update_task(db: DbConnection, id: str, **updates: object) -> None:
     fields = []
     values = []
 
@@ -153,13 +205,13 @@ def update_task(db: sqlite3.Connection, id: str, **updates: object) -> None:
     db.commit()
 
 
-def delete_task(db: sqlite3.Connection, id: str) -> None:
+def delete_task(db: DbConnection, id: str) -> None:
     db.execute("DELETE FROM task_run_logs WHERE task_id = ?", (id,))
     db.execute("DELETE FROM scheduled_tasks WHERE id = ?", (id,))
     db.commit()
 
 
-def get_due_tasks(db: sqlite3.Connection) -> list[ScheduledTask]:
+def get_due_tasks(db: DbConnection) -> list[ScheduledTask]:
     now = datetime.now(timezone.utc).isoformat()
     rows = db.execute(
         dedent("""\
@@ -173,7 +225,7 @@ def get_due_tasks(db: sqlite3.Connection) -> list[ScheduledTask]:
 
 
 def update_task_after_run(
-    db: sqlite3.Connection, id: str, next_run: str | None, last_result: str
+    db: DbConnection, id: str, next_run: str | None, last_result: str
 ) -> None:
     now = datetime.now(timezone.utc).isoformat()
     db.execute(
@@ -188,7 +240,7 @@ def update_task_after_run(
 
 
 def log_task_run(
-    db: sqlite3.Connection,
+    db: DbConnection,
     *,
     task_id: str,
     run_at: str,
