@@ -35,18 +35,6 @@ class PykoClawPlugin(Protocol):
         """Return a Pydantic Settings class for plugin configuration."""
         ...
 
-    def on_message(self, message: dict[str, Any]) -> None:
-        """Handle an incoming message."""
-        ...
-
-    def on_startup(self) -> None:
-        """Called when pykoclaw starts up."""
-        ...
-
-    def on_shutdown(self) -> None:
-        """Called when pykoclaw shuts down."""
-        ...
-
 
 class PykoClawPluginBase:
     """Base class with default no-op implementations for all plugin methods."""
@@ -62,15 +50,6 @@ class PykoClawPluginBase:
 
     def get_config_class(self) -> type[BaseSettings] | None:
         return None
-
-    def on_message(self, message: dict[str, Any]) -> None:
-        pass
-
-    def on_startup(self) -> None:
-        pass
-
-    def on_shutdown(self) -> None:
-        pass
 
 
 def load_plugins() -> list[PykoClawPlugin]:

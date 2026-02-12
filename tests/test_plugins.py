@@ -43,15 +43,6 @@ def test_plugin_base_default_implementations_dont_crash() -> None:
     config_cls = plugin.get_config_class()
     assert config_cls is None
 
-    # Test on_message doesn't crash
-    plugin.on_message({"test": "message"})
-
-    # Test on_startup doesn't crash
-    plugin.on_startup()
-
-    # Test on_shutdown doesn't crash
-    plugin.on_shutdown()
-
 
 def test_plugin_base_implements_protocol() -> None:
     """Test that PykoClawPluginBase implements PykoClawPlugin protocol."""
