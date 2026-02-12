@@ -4,7 +4,14 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    model_config = {"env_prefix": "PYKOCLAW_"}
+    model_config = {
+        "env_prefix": "PYKOCLAW_",
+        "env_file": (
+            str(Path.home() / ".local" / "share" / "pykoclaw" / ".env"),
+            ".env",
+        ),
+        "env_file_encoding": "utf-8",
+    }
 
     data: Path = Path.home() / ".local" / "share" / "pykoclaw"
     model: str = "claude-opus-4-6"
