@@ -9,7 +9,7 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
-from pykoclaw.models import Conversation, ScheduledTask
+from pykoclaw.models import Conversation, ScheduledTask, TaskRunLog
 
 
 class ThreadSafeConnection:

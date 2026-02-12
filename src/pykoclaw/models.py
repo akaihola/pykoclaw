@@ -20,3 +20,13 @@ class ScheduledTask(BaseModel):
     last_result: str | None = None
     status: str = "active"
     created_at: str
+
+
+class TaskRunLog(BaseModel):
+    id: int
+    task_id: str
+    run_at: str
+    duration_ms: int
+    status: str
+    result: str | None = None
+    error: str | None = None
