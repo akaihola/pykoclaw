@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import sqlite3
 from importlib.metadata import entry_points
 from typing import Any, Protocol, runtime_checkable
 

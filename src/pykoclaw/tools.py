@@ -1,4 +1,3 @@
-import sqlite3
 import uuid
 from textwrap import dedent
 from typing import Any
