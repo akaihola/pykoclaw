@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from textwrap import dedent
@@ -44,6 +46,30 @@ class ThreadSafeConnection:
     def rollback(self) -> None:
         with self._lock:
             self._conn.rollback()
+
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        """Acquire lock, yield raw connection, commit on success / rollback on error.
+
+        This context manager holds the lock for the entire transaction, ensuring
+        that multiple statements execute atomically without releasing and
+        re-acquiring the lock between them.
+
+        Yields:
+            The raw sqlite3.Connection object.
+
+        Raises:
+            Any exception raised within the context will trigger a rollback.
+        """
+        self._lock.acquire()
+        try:
+            yield self._conn
+            self._conn.commit()
+        except BaseException:
+            self._conn.rollback()
+            raise
+        finally:
+            self._lock.release()
 
     def close(self) -> None:
         with self._lock:
@@ -225,9 +251,14 @@ def update_task(db: DbConnection, task_id: str, **updates: object) -> None:
 
 
 def delete_task(db: DbConnection, task_id: str) -> None:
-    db.execute("DELETE FROM task_run_logs WHERE task_id = ?", (task_id,))
-    db.execute("DELETE FROM scheduled_tasks WHERE id = ?", (task_id,))
-    db.commit()
+    if isinstance(db, ThreadSafeConnection):
+        with db.transaction() as conn:
+            conn.execute("DELETE FROM task_run_logs WHERE task_id = ?", (task_id,))
+            conn.execute("DELETE FROM scheduled_tasks WHERE id = ?", (task_id,))
+    else:
+        db.execute("DELETE FROM task_run_logs WHERE task_id = ?", (task_id,))
+        db.execute("DELETE FROM scheduled_tasks WHERE id = ?", (task_id,))
+        db.commit()
 
 
 def get_due_tasks(db: DbConnection) -> list[ScheduledTask]:
