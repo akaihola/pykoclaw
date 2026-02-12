@@ -5,7 +5,9 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from textwrap import dedent
-from typing import Any
+from typing import Any, TypeVar
+
+from pydantic import BaseModel
 
 from pykoclaw.models import Conversation, ScheduledTask
 
@@ -57,6 +59,21 @@ class ThreadSafeConnection:
 
 
 DbConnection = sqlite3.Connection | ThreadSafeConnection
+
+ModelT = TypeVar("ModelT", bound=BaseModel)
+
+
+def _rows_to(model: type[ModelT], rows: list[sqlite3.Row]) -> list[ModelT]:
+    """Convert a list of sqlite3.Row objects to a list of model instances.
+
+    Args:
+        model: The Pydantic model class to instantiate
+        rows: List of sqlite3.Row objects from database query
+
+    Returns:
+        List of model instances
+    """
+    return [model(**row) for row in rows]
 
 
 def init_db(db_path: Path) -> ThreadSafeConnection:
@@ -131,7 +148,7 @@ def get_conversation(db: DbConnection, name: str) -> Conversation | None:
 
 def list_conversations(db: DbConnection) -> list[Conversation]:
     rows = db.execute("SELECT * FROM conversations ORDER BY created_at DESC").fetchall()
-    return [Conversation(**row) for row in rows]
+    return _rows_to(Conversation, rows)
 
 
 def create_task(
@@ -180,14 +197,14 @@ def get_tasks_for_conversation(
         "SELECT * FROM scheduled_tasks WHERE conversation = ? ORDER BY created_at DESC",
         (conversation,),
     ).fetchall()
-    return [ScheduledTask(**row) for row in rows]
+    return _rows_to(ScheduledTask, rows)
 
 
 def get_all_tasks(db: DbConnection) -> list[ScheduledTask]:
     rows = db.execute(
         "SELECT * FROM scheduled_tasks ORDER BY created_at DESC"
     ).fetchall()
-    return [ScheduledTask(**row) for row in rows]
+    return _rows_to(ScheduledTask, rows)
 
 
 def update_task(db: DbConnection, task_id: str, **updates: object) -> None:
@@ -223,7 +240,7 @@ def get_due_tasks(db: DbConnection) -> list[ScheduledTask]:
     """),
         (now,),
     ).fetchall()
-    return [ScheduledTask(**row) for row in rows]
+    return _rows_to(ScheduledTask, rows)
 
 
 def update_task_after_run(
