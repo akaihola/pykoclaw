@@ -48,7 +48,11 @@ async def run_task(task: ScheduledTask, db: sqlite3.Connection, data_dir: Path) 
     except Exception as e:
         error_msg = str(e)
         result_summary = f"Error: {error_msg}"
-        next_run = None
+        # Preserve next_run for recurring tasks even on error
+        if task.schedule_type in ("cron", "interval"):
+            next_run = compute_next_run(task.schedule_type, task.schedule_value)
+        else:
+            next_run = None
 
     duration_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
 
