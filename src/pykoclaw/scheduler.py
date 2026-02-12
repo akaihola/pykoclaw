@@ -6,6 +6,7 @@ from pathlib import Path
 
 from pykoclaw.agent_core import query_agent
 from pykoclaw.db import (
+    DbConnection,
     get_conversation,
     get_due_tasks,
     log_task_run,
@@ -15,7 +16,7 @@ from pykoclaw.models import ScheduledTask
 from pykoclaw.scheduling import compute_next_run
 
 
-async def run_task(task: ScheduledTask, db: sqlite3.Connection, data_dir: Path) -> None:
+async def run_task(task: ScheduledTask, db: DbConnection, data_dir: Path) -> None:
     start_time = datetime.now(timezone.utc)
 
     conv = get_conversation(db, task.conversation)
@@ -68,7 +69,7 @@ async def run_task(task: ScheduledTask, db: sqlite3.Connection, data_dir: Path) 
     )
 
 
-async def run_scheduler(db: sqlite3.Connection, data_dir: Path) -> None:
+async def run_scheduler(db: DbConnection, data_dir: Path) -> None:
     print("Scheduler started", file=sys.stderr)
 
     while True:

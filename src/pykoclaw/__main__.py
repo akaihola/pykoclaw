@@ -5,12 +5,12 @@ from pathlib import Path
 import click
 
 from pykoclaw.config import settings
-from pykoclaw.db import init_db, list_conversations, get_all_tasks
+from pykoclaw.db import DbConnection, init_db, list_conversations, get_all_tasks
 from pykoclaw.plugins import load_plugins, run_db_migrations
 from pykoclaw.scheduler import run_scheduler
 
 
-def _get_db_and_data_dir() -> tuple[sqlite3.Connection, Path]:
+def _get_db_and_data_dir() -> tuple[DbConnection, Path]:
     return init_db(settings.db_path), settings.data
 
 

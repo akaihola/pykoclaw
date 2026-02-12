@@ -6,6 +6,7 @@ from typing import Any
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from pykoclaw.db import (
+    DbConnection,
     create_task,
     delete_task,
     get_task,
@@ -15,7 +16,7 @@ from pykoclaw.db import (
 from pykoclaw.scheduling import compute_next_run
 
 
-def make_mcp_server(db: sqlite3.Connection, conversation: str):
+def make_mcp_server(db: DbConnection, conversation: str):
     @tool(
         "schedule_task",
         dedent("""\

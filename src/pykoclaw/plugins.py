@@ -10,6 +10,8 @@ from typing import Any, Protocol, runtime_checkable
 import click
 from pydantic_settings import BaseSettings
 
+from pykoclaw.db import DbConnection
+
 log = logging.getLogger(__name__)
 
 
@@ -21,9 +23,7 @@ class PykoClawPlugin(Protocol):
         """Register CLI commands with the Click group."""
         ...
 
-    def get_mcp_servers(
-        self, db: sqlite3.Connection, conversation: str
-    ) -> dict[str, Any]:
+    def get_mcp_servers(self, db: DbConnection, conversation: str) -> dict[str, Any]:
         """Return MCP server definitions for this plugin."""
         ...
 
@@ -54,9 +54,7 @@ class PykoClawPluginBase:
     def register_commands(self, group: click.Group) -> None:
         pass
 
-    def get_mcp_servers(
-        self, db: sqlite3.Connection, conversation: str
-    ) -> dict[str, Any]:
+    def get_mcp_servers(self, db: DbConnection, conversation: str) -> dict[str, Any]:
         return {}
 
     def get_db_migrations(self) -> list[str]:
@@ -88,7 +86,7 @@ def load_plugins() -> list[PykoClawPlugin]:
     return plugins
 
 
-def run_db_migrations(db: sqlite3.Connection, plugins: list[PykoClawPlugin]) -> None:
+def run_db_migrations(db: DbConnection, plugins: list[PykoClawPlugin]) -> None:
     for plugin in plugins:
         for sql in plugin.get_db_migrations():
             try:

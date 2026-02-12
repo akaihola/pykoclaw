@@ -17,7 +17,7 @@ from claude_agent_sdk import (
 )
 
 from pykoclaw.config import settings
-from pykoclaw.db import upsert_conversation
+from pykoclaw.db import DbConnection, upsert_conversation
 from pykoclaw.tools import make_mcp_server
 
 
@@ -46,7 +46,7 @@ _DEFAULT_ALLOWED_TOOLS = [
 async def query_agent(
     prompt: str,
     *,
-    db: sqlite3.Connection,
+    db: DbConnection,
     data_dir: Path,
     conversation_name: str,
     system_prompt: str | None = None,
