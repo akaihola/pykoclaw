@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -53,7 +53,7 @@ async def query_agent(
     resume_session_id: str | None = None,
     extra_mcp_servers: dict[str, Any] | None = None,
     model: str | None = None,
-) -> AsyncIterator[AgentMessage]:
+) -> AsyncGenerator[AgentMessage, None]:
     """Send *prompt* to the Claude agent and yield response messages."""
     conv_dir = data_dir / "conversations" / conversation_name
     conv_dir.mkdir(parents=True, exist_ok=True)
