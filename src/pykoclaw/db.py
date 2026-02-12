@@ -137,7 +137,7 @@ def list_conversations(db: DbConnection) -> list[Conversation]:
 def create_task(
     db: DbConnection,
     *,
-    id: str,
+    task_id: str,
     conversation: str,
     prompt: str,
     schedule_type: str,
@@ -152,7 +152,7 @@ def create_task(
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """),
         (
-            id,
+            task_id,
             conversation,
             prompt,
             schedule_type,
@@ -166,8 +166,10 @@ def create_task(
     db.commit()
 
 
-def get_task(db: DbConnection, id: str) -> ScheduledTask | None:
-    row = db.execute("SELECT * FROM scheduled_tasks WHERE id = ?", (id,)).fetchone()
+def get_task(db: DbConnection, task_id: str) -> ScheduledTask | None:
+    row = db.execute(
+        "SELECT * FROM scheduled_tasks WHERE id = ?", (task_id,)
+    ).fetchone()
     return ScheduledTask(**row) if row else None
 
 
@@ -188,7 +190,7 @@ def get_all_tasks(db: DbConnection) -> list[ScheduledTask]:
     return [ScheduledTask(**row) for row in rows]
 
 
-def update_task(db: DbConnection, id: str, **updates: object) -> None:
+def update_task(db: DbConnection, task_id: str, **updates: object) -> None:
     fields = []
     values = []
 
@@ -200,14 +202,14 @@ def update_task(db: DbConnection, id: str, **updates: object) -> None:
     if not fields:
         return
 
-    values.append(id)
+    values.append(task_id)
     db.execute(f"UPDATE scheduled_tasks SET {', '.join(fields)} WHERE id = ?", values)
     db.commit()
 
 
-def delete_task(db: DbConnection, id: str) -> None:
-    db.execute("DELETE FROM task_run_logs WHERE task_id = ?", (id,))
-    db.execute("DELETE FROM scheduled_tasks WHERE id = ?", (id,))
+def delete_task(db: DbConnection, task_id: str) -> None:
+    db.execute("DELETE FROM task_run_logs WHERE task_id = ?", (task_id,))
+    db.execute("DELETE FROM scheduled_tasks WHERE id = ?", (task_id,))
     db.commit()
 
 
@@ -225,7 +227,7 @@ def get_due_tasks(db: DbConnection) -> list[ScheduledTask]:
 
 
 def update_task_after_run(
-    db: DbConnection, id: str, next_run: str | None, last_result: str
+    db: DbConnection, task_id: str, next_run: str | None, last_result: str
 ) -> None:
     now = datetime.now(timezone.utc).isoformat()
     db.execute(
@@ -234,7 +236,7 @@ def update_task_after_run(
         SET next_run = ?, last_run = ?, last_result = ?, status = CASE WHEN ? IS NULL THEN 'completed' ELSE status END
         WHERE id = ?
     """),
-        (next_run, now, last_result, next_run, id),
+        (next_run, now, last_result, next_run, task_id),
     )
     db.commit()
 

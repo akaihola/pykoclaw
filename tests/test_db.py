@@ -52,7 +52,7 @@ def test_task_crud(db: sqlite3.Connection) -> None:
     upsert_conversation(db, "test", "sess-1", "/tmp/test")
     create_task(
         db,
-        id="t1",
+        task_id="t1",
         conversation="test",
         prompt="hello",
         schedule_type="once",
@@ -60,7 +60,7 @@ def test_task_crud(db: sqlite3.Connection) -> None:
         next_run="2020-01-01T00:00:00Z",
     )
 
-    task = get_task(db, "t1")
+    task = get_task(db, task_id="t1")
     assert task is not None
     assert task.id == "t1"
     assert task.conversation == "test"
@@ -74,13 +74,13 @@ def test_task_crud(db: sqlite3.Connection) -> None:
     all_tasks = get_all_tasks(db)
     assert len(all_tasks) == 1
 
-    update_task(db, "t1", status="paused")
-    task = get_task(db, "t1")
+    update_task(db, task_id="t1", status="paused")
+    task = get_task(db, task_id="t1")
     assert task is not None
     assert task.status == "paused"
 
-    delete_task(db, "t1")
-    task = get_task(db, "t1")
+    delete_task(db, task_id="t1")
+    task = get_task(db, task_id="t1")
     assert task is None
 
 
@@ -88,7 +88,7 @@ def test_due_tasks(db: sqlite3.Connection) -> None:
     upsert_conversation(db, "test", "sess-1", "/tmp/test")
     create_task(
         db,
-        id="t1",
+        task_id="t1",
         conversation="test",
         prompt="hello",
         schedule_type="once",
@@ -105,7 +105,7 @@ def test_log_task_run(db: sqlite3.Connection) -> None:
     upsert_conversation(db, "test", "sess-1", "/tmp/test")
     create_task(
         db,
-        id="t1",
+        task_id="t1",
         conversation="test",
         prompt="hello",
         schedule_type="once",

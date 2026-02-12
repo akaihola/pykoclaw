@@ -57,7 +57,9 @@ async def run_task(task: ScheduledTask, db: DbConnection, data_dir: Path) -> Non
 
     duration_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
 
-    update_task_after_run(db, task.id, next_run, result_summary)
+    update_task_after_run(
+        db, task_id=task.id, next_run=next_run, last_result=result_summary
+    )
     log_task_run(
         db,
         task_id=task.id,

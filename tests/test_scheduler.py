@@ -26,7 +26,7 @@ def test_cron_task_survives_error(db: sqlite3.Connection, data_dir: Path) -> Non
 
     create_task(
         db,
-        id="cron-task",
+        task_id="cron-task",
         conversation="test",
         prompt="test prompt",
         schedule_type="cron",
@@ -35,7 +35,7 @@ def test_cron_task_survives_error(db: sqlite3.Connection, data_dir: Path) -> Non
         context_mode="isolated",
     )
 
-    task = get_task(db, "cron-task")
+    task = get_task(db, task_id="cron-task")
     assert task is not None
     assert task.schedule_type == "cron"
     assert task.status == "active"
@@ -45,7 +45,7 @@ def test_cron_task_survives_error(db: sqlite3.Connection, data_dir: Path) -> Non
 
         asyncio.run(run_task(task, db, data_dir))
 
-    updated_task = get_task(db, "cron-task")
+    updated_task = get_task(db, task_id="cron-task")
     assert updated_task is not None
     assert updated_task.next_run is not None
     assert updated_task.status == "active"
@@ -58,7 +58,7 @@ def test_interval_task_survives_error(db: sqlite3.Connection, data_dir: Path) ->
 
     create_task(
         db,
-        id="interval-task",
+        task_id="interval-task",
         conversation="test",
         prompt="test prompt",
         schedule_type="interval",
@@ -67,7 +67,7 @@ def test_interval_task_survives_error(db: sqlite3.Connection, data_dir: Path) ->
         context_mode="isolated",
     )
 
-    task = get_task(db, "interval-task")
+    task = get_task(db, task_id="interval-task")
     assert task is not None
     assert task.schedule_type == "interval"
     assert task.status == "active"
@@ -77,7 +77,7 @@ def test_interval_task_survives_error(db: sqlite3.Connection, data_dir: Path) ->
 
         asyncio.run(run_task(task, db, data_dir))
 
-    updated_task = get_task(db, "interval-task")
+    updated_task = get_task(db, task_id="interval-task")
     assert updated_task is not None
     assert updated_task.next_run is not None
     assert updated_task.status == "active"
@@ -92,7 +92,7 @@ def test_once_task_marked_completed_on_error(
 
     create_task(
         db,
-        id="once-task",
+        task_id="once-task",
         conversation="test",
         prompt="test prompt",
         schedule_type="once",
@@ -101,7 +101,7 @@ def test_once_task_marked_completed_on_error(
         context_mode="isolated",
     )
 
-    task = get_task(db, "once-task")
+    task = get_task(db, task_id="once-task")
     assert task is not None
     assert task.schedule_type == "once"
     assert task.status == "active"
@@ -111,7 +111,7 @@ def test_once_task_marked_completed_on_error(
 
         asyncio.run(run_task(task, db, data_dir))
 
-    updated_task = get_task(db, "once-task")
+    updated_task = get_task(db, task_id="once-task")
     assert updated_task is not None
     assert updated_task.next_run is None
     assert updated_task.status == "completed"

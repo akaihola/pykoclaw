@@ -37,7 +37,7 @@ def make_mcp_server(db: DbConnection, conversation: str):
 
         create_task(
             db,
-            id=task_id,
+            task_id=task_id,
             conversation=conversation,
             prompt=args["prompt"],
             schedule_type=schedule_type,
@@ -79,7 +79,7 @@ def make_mcp_server(db: DbConnection, conversation: str):
         {"task_id": str},
     )
     async def pause_task(args: dict[str, Any]) -> dict[str, Any]:
-        update_task(db, args["task_id"], status="paused")
+        update_task(db, task_id=args["task_id"], status="paused")
         return {
             "content": [{"type": "text", "text": f"Task {args['task_id']} paused."}]
         }
@@ -91,13 +91,13 @@ def make_mcp_server(db: DbConnection, conversation: str):
     )
     async def resume_task(args: dict[str, Any]) -> dict[str, Any]:
         task_id = args["task_id"]
-        task = get_task(db, task_id)
+        task = get_task(db, task_id=task_id)
 
         if not task:
             return {"content": [{"type": "text", "text": f"Task {task_id} not found."}]}
 
         next_run = compute_next_run(task.schedule_type, task.schedule_value)
-        update_task(db, task_id, status="active", next_run=next_run)
+        update_task(db, task_id=task_id, status="active", next_run=next_run)
         return {
             "content": [
                 {
@@ -113,7 +113,7 @@ def make_mcp_server(db: DbConnection, conversation: str):
         {"task_id": str},
     )
     async def cancel_task(args: dict[str, Any]) -> dict[str, Any]:
-        delete_task(db, args["task_id"])
+        delete_task(db, task_id=args["task_id"])
         return {
             "content": [{"type": "text", "text": f"Task {args['task_id']} cancelled."}]
         }
