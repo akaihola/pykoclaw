@@ -15,6 +15,7 @@ class ScheduledTask(BaseModel):
     schedule_type: str
     schedule_value: str
     context_mode: str = "isolated"
+    target_conversation: str | None = None
     next_run: str | None = None
     last_run: str | None = None
     last_result: str | None = None
@@ -30,3 +31,15 @@ class TaskRunLog(BaseModel):
     status: str
     result: str | None = None
     error: str | None = None
+
+
+class DeliveryQueueItem(BaseModel):
+    id: str
+    task_id: str
+    task_run_log_id: int | None = None
+    conversation: str
+    channel_prefix: str
+    message: str
+    status: str = "pending"
+    created_at: str
+    delivered_at: str | None = None

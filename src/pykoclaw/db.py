@@ -11,7 +11,7 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
-from pykoclaw.models import Conversation, ScheduledTask, TaskRunLog
+from pykoclaw.models import Conversation, DeliveryQueueItem, ScheduledTask, TaskRunLog
 
 
 class ThreadSafeConnection:
@@ -124,6 +124,7 @@ def init_db(db_path: Path) -> ThreadSafeConnection:
             schedule_type TEXT NOT NULL,
             schedule_value TEXT NOT NULL,
             context_mode TEXT DEFAULT 'isolated',
+            target_conversation TEXT,
             next_run TEXT,
             last_run TEXT,
             last_result TEXT,
@@ -142,14 +143,100 @@ def init_db(db_path: Path) -> ThreadSafeConnection:
             FOREIGN KEY (task_id) REFERENCES scheduled_tasks(id)
         );
 
+        CREATE TABLE IF NOT EXISTS delivery_queue (
+            id TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL,
+            task_run_log_id INTEGER,
+            conversation TEXT NOT NULL,
+            channel_prefix TEXT NOT NULL,
+            message TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            created_at TEXT NOT NULL,
+            delivered_at TEXT,
+            FOREIGN KEY (task_id) REFERENCES scheduled_tasks(id)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_next_run ON scheduled_tasks(next_run);
         CREATE INDEX IF NOT EXISTS idx_status ON scheduled_tasks(status);
         CREATE INDEX IF NOT EXISTS idx_task_run_logs ON task_run_logs(task_id, run_at);
+        CREATE INDEX IF NOT EXISTS idx_delivery_queue_status
+            ON delivery_queue(channel_prefix, status);
     """)
     )
 
     db.commit()
     return db
+
+
+def parse_channel_prefix(conversation_name: str) -> str:
+    """Extract prefix before first ``-``, defaulting to ``"chat"`` if no dash."""
+    if "-" in conversation_name:
+        return conversation_name.split("-", 1)[0]
+    return "chat"
+
+
+def enqueue_delivery(
+    db: DbConnection,
+    *,
+    task_id: str,
+    task_run_log_id: int | None,
+    conversation: str,
+    channel_prefix: str,
+    message: str,
+) -> str:
+    import uuid
+
+    delivery_id = uuid.uuid4().hex[:12]
+    now = datetime.now(timezone.utc).isoformat()
+    db.execute(
+        dedent("""\
+        INSERT INTO delivery_queue
+            (id, task_id, task_run_log_id, conversation, channel_prefix, message, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+    """),
+        (
+            delivery_id,
+            task_id,
+            task_run_log_id,
+            conversation,
+            channel_prefix,
+            message,
+            now,
+        ),
+    )
+    db.commit()
+    return delivery_id
+
+
+def get_pending_deliveries(
+    db: DbConnection, channel_prefix: str
+) -> list[DeliveryQueueItem]:
+    rows = db.execute(
+        dedent("""\
+        SELECT * FROM delivery_queue
+        WHERE channel_prefix = ? AND status = 'pending'
+        ORDER BY created_at
+    """),
+        (channel_prefix,),
+    ).fetchall()
+    return _rows_to(DeliveryQueueItem, rows)
+
+
+def mark_delivered(db: DbConnection, delivery_id: str) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    db.execute(
+        "UPDATE delivery_queue SET status = 'delivered', delivered_at = ? WHERE id = ?",
+        (now, delivery_id),
+    )
+    db.commit()
+
+
+def mark_delivery_failed(db: DbConnection, delivery_id: str, error: str) -> None:
+    db.execute(
+        "UPDATE delivery_queue SET status = 'failed' WHERE id = ?",
+        (delivery_id,),
+    )
+    db.commit()
 
 
 def upsert_conversation(db: DbConnection, name: str, session_id: str, cwd: str) -> None:
@@ -187,12 +274,15 @@ def create_task(
     schedule_value: str,
     next_run: str | None,
     context_mode: str = "isolated",
+    target_conversation: str | None = None,
 ) -> None:
     now = datetime.now(timezone.utc).isoformat()
     db.execute(
         dedent("""\
-        INSERT INTO scheduled_tasks (id, conversation, prompt, schedule_type, schedule_value, context_mode, next_run, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO scheduled_tasks
+            (id, conversation, prompt, schedule_type, schedule_value, context_mode,
+             target_conversation, next_run, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """),
         (
             task_id,
@@ -201,6 +291,7 @@ def create_task(
             schedule_type,
             schedule_value,
             context_mode,
+            target_conversation,
             next_run,
             "active",
             now,
