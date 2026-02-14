@@ -20,12 +20,16 @@ def make_mcp_server(db: DbConnection, conversation: str):
         "schedule_task",
         dedent("""\
         Schedule a new task to run at specified times.
-        Supports cron expressions, intervals (milliseconds), or one-time execution."""),
+        Supports cron expressions, intervals (milliseconds), or one-time execution.
+        Results are delivered back to the originating channel by default.
+        Set target_conversation to deliver results to a different channel instead \
+        (e.g. "wa-123@s.whatsapp.net" to target a WhatsApp chat)."""),
         {
             "prompt": str,
             "schedule_type": str,
             "schedule_value": str,
             "context_mode": str,
+            "target_conversation": str,
         },
     )
     async def schedule_task(args: dict[str, Any]) -> dict[str, Any]:
@@ -33,6 +37,7 @@ def make_mcp_server(db: DbConnection, conversation: str):
         schedule_type = args["schedule_type"]
         schedule_value = args["schedule_value"]
         next_run = compute_next_run(schedule_type, schedule_value)
+        target_conversation = args.get("target_conversation")
 
         create_task(
             db,
@@ -43,16 +48,14 @@ def make_mcp_server(db: DbConnection, conversation: str):
             schedule_value=schedule_value,
             next_run=next_run,
             context_mode=args.get("context_mode", "group"),
+            target_conversation=target_conversation,
         )
 
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"Task {task_id} scheduled. Next run: {next_run}",
-                }
-            ]
-        }
+        msg = f"Task {task_id} scheduled. Next run: {next_run}"
+        if target_conversation:
+            msg += f" Results will be delivered to: {target_conversation}"
+
+        return {"content": [{"type": "text", "text": msg}]}
 
     @tool(
         "list_tasks",
