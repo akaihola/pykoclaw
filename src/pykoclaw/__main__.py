@@ -45,7 +45,7 @@ def main(ctx: click.Context) -> None:
 
 @main.command()
 def scheduler() -> None:
-    """Manage scheduled tasks."""
+    """Run the task scheduler daemon (polls every 60s for due tasks)."""
     db, data_dir = _get_db_and_data_dir()
     asyncio.run(run_scheduler(db, data_dir))
 
@@ -60,12 +60,20 @@ def conversations() -> None:
 
 @main.command()
 def tasks() -> None:
-    """Manage tasks."""
+    """List all scheduled tasks and their status."""
     db, _ = _get_db_and_data_dir()
-    for task in get_all_tasks(db):
+    all_tasks = get_all_tasks(db)
+    if not all_tasks:
+        click.echo("No scheduled tasks.")
+        return
+    click.echo(
+        f"{'ID':<10} {'Conversation':<30} {'Prompt':<50} {'Status':<10} {'Next Run'}"
+    )
+    click.echo("-" * 110)
+    for task in all_tasks:
         click.echo(
-            f"{task.id} | {task.conversation} | {task.prompt[:50]}"
-            f" | {task.status} | {task.next_run}"
+            f"{task.id:<10} {task.conversation:<30} {task.prompt[:50]:<50}"
+            f" {task.status:<10} {task.next_run}"
         )
 
 
