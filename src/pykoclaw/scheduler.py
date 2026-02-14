@@ -6,9 +6,11 @@ from pathlib import Path
 from pykoclaw.agent_core import query_agent
 from pykoclaw.db import (
     DbConnection,
+    enqueue_delivery,
     get_conversation,
     get_due_tasks,
     log_task_run,
+    parse_channel_prefix,
     update_task_after_run,
 )
 from pykoclaw.models import ScheduledTask
@@ -69,8 +71,20 @@ async def run_task(task: ScheduledTask, db: DbConnection, data_dir: Path) -> Non
         error=error_msg,
     )
 
+    if result_text and not error_msg:
+        delivery_conversation = task.target_conversation or task.conversation
+        enqueue_delivery(
+            db,
+            task_id=task.id,
+            task_run_log_id=None,
+            conversation=delivery_conversation,
+            channel_prefix=parse_channel_prefix(delivery_conversation),
+            message=result_text,
+        )
+
 
 async def run_scheduler(db: DbConnection, data_dir: Path) -> None:
+    db.execute("PRAGMA journal_mode=WAL")
     print("Scheduler started", file=sys.stderr)
 
     while True:
