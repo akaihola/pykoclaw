@@ -1,4 +1,5 @@
 import sqlite3
+from textwrap import dedent
 from pathlib import Path
 
 import pytest
@@ -253,3 +254,31 @@ def test_delivery_queue_mark_failed(db: sqlite3.Connection) -> None:
         "SELECT * FROM delivery_queue WHERE id = ?", (delivery_id,)
     ).fetchone()
     assert row["status"] == "failed"
+
+def test_init_db_adds_missing_columns_to_existing_table(tmp_path: Path) -> None:
+    """init_db must add context_mode and target_conversation to old tables."""
+    raw = sqlite3.connect(str(tmp_path / "test.db"))
+    raw.execute(
+        dedent("""\
+        CREATE TABLE scheduled_tasks (
+            id TEXT PRIMARY KEY,
+            conversation TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            schedule_type TEXT NOT NULL,
+            schedule_value TEXT NOT NULL,
+            next_run TEXT,
+            last_run TEXT,
+            last_result TEXT,
+            status TEXT DEFAULT 'active',
+            created_at TEXT NOT NULL
+        )""")
+    )
+    raw.commit()
+    raw.close()
+
+    db = init_db(tmp_path / "test.db")
+    cols = [
+        row[1] for row in db.execute("PRAGMA table_info(scheduled_tasks)").fetchall()
+    ]
+    assert "context_mode" in cols, "context_mode column missing after init_db"
+    assert "target_conversation" in cols, "target_conversation column missing after init_db"

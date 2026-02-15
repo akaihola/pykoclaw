@@ -102,6 +102,15 @@ def _rows_to(model: type[ModelT], rows: list[sqlite3.Row]) -> list[ModelT]:
     return [model(**row) for row in rows]
 
 
+def _add_column(db: DbConnection, table: str, column_def: str) -> None:
+    """Add a column to *table* if it doesn't already exist."""
+    try:
+        db.execute(f"ALTER TABLE {table} ADD COLUMN {column_def}")
+        db.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists
+
+
 def init_db(db_path: Path) -> ThreadSafeConnection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     raw = sqlite3.connect(str(db_path), check_same_thread=False)
@@ -123,7 +132,7 @@ def init_db(db_path: Path) -> ThreadSafeConnection:
             prompt TEXT NOT NULL,
             schedule_type TEXT NOT NULL,
             schedule_value TEXT NOT NULL,
-            context_mode TEXT DEFAULT 'isolated',
+            context_mode TEXT DEFAULT 'group',
             target_conversation TEXT,
             next_run TEXT,
             last_run TEXT,
@@ -165,6 +174,12 @@ def init_db(db_path: Path) -> ThreadSafeConnection:
     )
 
     db.commit()
+
+    # Migrations: add columns that may be missing in older databases.
+    # ALTER TABLE is a no-op if the column already exists (caught by try/except).
+    _add_column(db, "scheduled_tasks", "context_mode TEXT DEFAULT 'group'")
+    _add_column(db, "scheduled_tasks", "target_conversation TEXT")
+
     return db
 
 
