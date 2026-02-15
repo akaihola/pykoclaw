@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     data: Path = Path.home() / ".local" / "share" / "pykoclaw"
     model: str = "claude-opus-4-6"
+    cli_path: Path | None = None
 
     @property
     def db_path(self) -> Path:
