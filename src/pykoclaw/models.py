@@ -14,7 +14,7 @@ class ScheduledTask(BaseModel):
     prompt: str
     schedule_type: str
     schedule_value: str
-    context_mode: str = "isolated"
+    context_mode: str = "group"
     target_conversation: str | None = None
     next_run: str | None = None
     last_run: str | None = None

@@ -25,11 +25,15 @@ def make_mcp_server(db: DbConnection, conversation: str):
         Set target_conversation to deliver results to a different channel instead \
         (e.g. "wa-123@s.whatsapp.net" to target a WhatsApp chat)."""),
         {
-            "prompt": str,
-            "schedule_type": str,
-            "schedule_value": str,
-            "context_mode": str,
-            "target_conversation": str,
+            "type": "object",
+            "properties": {
+                "prompt": {"type": "string"},
+                "schedule_type": {"type": "string"},
+                "schedule_value": {"type": "string"},
+                "context_mode": {"type": "string"},
+                "target_conversation": {"type": "string"},
+            },
+            "required": ["prompt", "schedule_type", "schedule_value"],
         },
     )
     async def schedule_task(args: dict[str, Any]) -> dict[str, Any]:

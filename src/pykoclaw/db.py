@@ -273,7 +273,7 @@ def create_task(
     schedule_type: str,
     schedule_value: str,
     next_run: str | None,
-    context_mode: str = "isolated",
+    context_mode: str = "group",
     target_conversation: str | None = None,
 ) -> None:
     now = datetime.now(timezone.utc).isoformat()
