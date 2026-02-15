@@ -60,3 +60,14 @@ def test_schedule_task_schema_optional(db: sqlite3.Connection) -> None:
     assert "prompt" in input_schema["required"]
     assert "schedule_type" in input_schema["required"]
     assert "schedule_value" in input_schema["required"]
+
+    # Enum constraints prevent Claude from inventing invalid values
+    assert input_schema["properties"]["schedule_type"]["enum"] == [
+        "cron",
+        "interval",
+        "once",
+    ]
+    assert input_schema["properties"]["context_mode"]["enum"] == [
+        "group",
+        "isolated",
+    ]

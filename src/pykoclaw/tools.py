@@ -27,11 +27,41 @@ def make_mcp_server(db: DbConnection, conversation: str):
         {
             "type": "object",
             "properties": {
-                "prompt": {"type": "string"},
-                "schedule_type": {"type": "string"},
-                "schedule_value": {"type": "string"},
-                "context_mode": {"type": "string"},
-                "target_conversation": {"type": "string"},
+                "prompt": {
+                    "type": "string",
+                    "description": "The task prompt — what the agent should do when the task fires.",
+                },
+                "schedule_type": {
+                    "type": "string",
+                    "enum": ["cron", "interval", "once"],
+                    "description": (
+                        '"cron": recurring via cron expression (e.g. "0 9 * * *"). '
+                        '"interval": recurring every N milliseconds (e.g. "3600000"). '
+                        '"once": one-shot at an ISO 8601 timestamp (e.g. "2025-03-01T12:00:00Z").'
+                    ),
+                },
+                "schedule_value": {
+                    "type": "string",
+                    "description": (
+                        "Interpreted based on schedule_type — "
+                        "a cron expression, milliseconds, or ISO 8601 timestamp."
+                    ),
+                },
+                "context_mode": {
+                    "type": "string",
+                    "enum": ["group", "isolated"],
+                    "description": (
+                        '"group": agent sees the conversation history (default). '
+                        '"isolated": agent starts with a blank session each run.'
+                    ),
+                },
+                "target_conversation": {
+                    "type": "string",
+                    "description": (
+                        "Deliver results to a different conversation instead of the "
+                        'originating one (e.g. "wa-123@s.whatsapp.net").'
+                    ),
+                },
             },
             "required": ["prompt", "schedule_type", "schedule_value"],
         },
