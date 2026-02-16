@@ -64,10 +64,11 @@ pykoclaw whatsapp run     # WhatsApp listener (pykoclaw-whatsapp plugin)
 
 Settings are read from environment variables with the `PYKOCLAW_` prefix:
 
-| Variable         | Default                   | Description                                       |
-| ---------------- | ------------------------- | ------------------------------------------------- |
-| `PYKOCLAW_DATA`  | `~/.local/share/pykoclaw` | Data directory (database, conversations, history) |
-| `PYKOCLAW_MODEL` | `claude-opus-4-6`         | Claude model to use                               |
+| Variable             | Default                   | Description                                       |
+| -------------------- | ------------------------- | ------------------------------------------------- |
+| `PYKOCLAW_DATA`      | `~/.local/share/pykoclaw` | Data directory (database, conversations, history) |
+| `PYKOCLAW_MODEL`     | `claude-opus-4-6`         | Claude model to use                               |
+| `PYKOCLAW_CLI_PATH`  | *(bundled)*               | Path to Claude CLI binary (overrides bundled SDK) |
 
 ## Data directory layout
 
@@ -119,6 +120,17 @@ Tasks support two context modes:
 - **`isolated`** -- Each run starts a fresh agent session.
 - **`group`** -- Runs resume the conversation's existing session.
 
+By default, task results are delivered back to the conversation that scheduled
+them. Use the optional `target_conversation` parameter to route results to a
+different channel (e.g., schedule from ACP, deliver to WhatsApp).
+
+### Delivery queue
+
+After each task runs, the scheduler writes results to a `delivery_queue` table.
+Channel plugins (WhatsApp, ACP) poll this queue and deliver messages through
+their native transports. This decouples the scheduler from channel-specific
+send logic.
+
 Run the scheduler as a long-lived process:
 
 ```bash
@@ -127,7 +139,9 @@ pykoclaw scheduler
 
 ## Plugins
 
-| Package                                                            | Description               |
-| ------------------------------------------------------------------ | ------------------------- |
-| [pykoclaw-chat](https://github.com/akaihola/pykoclaw-chat)         | Interactive terminal chat |
-| [pykoclaw-whatsapp](https://github.com/akaihola/pykoclaw-whatsapp) | WhatsApp integration      |
+| Package                                                              | Description                            |
+| -------------------------------------------------------------------- | -------------------------------------- |
+| [pykoclaw-chat](https://github.com/akaihola/pykoclaw-chat)           | Interactive terminal chat              |
+| [pykoclaw-whatsapp](https://github.com/akaihola/pykoclaw-whatsapp)   | WhatsApp integration                   |
+| [pykoclaw-acp](https://github.com/akaihola/pykoclaw-acp)             | Agent Client Protocol (ACP) server     |
+| [pykoclaw-messaging](https://github.com/akaihola/pykoclaw-messaging) | Shared channel-agnostic dispatch       |
