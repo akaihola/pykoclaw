@@ -72,6 +72,7 @@ async def query_agent(
         setting_sources=["project"],
         system_prompt=system_prompt,
         resume=resume_session_id,
+        env={"SHELL": "/bin/bash"},
     )
 
     async with ClaudeSDKClient(options) as client:
