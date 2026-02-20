@@ -93,4 +93,5 @@ async def query_agent(
                 yield AgentMessage(
                     type="result",
                     session_id=message.session_id,
+                    text=message.result,
                 )
