@@ -8,15 +8,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 from claude_agent_sdk import (
-    AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
     ResultMessage,
-    TextBlock,
 )
 
 from pykoclaw.config import settings
 from pykoclaw.db import DbConnection, upsert_conversation
+from pykoclaw.sdk_consume import consume_sdk_response
 from pykoclaw.tools import make_mcp_server
 
 
@@ -78,20 +77,18 @@ async def query_agent(
     async with ClaudeSDKClient(options) as client:
         await client.query(prompt)
 
-        async for message in client.receive_response():
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        yield AgentMessage(type="text", text=block.text)
-            elif isinstance(message, ResultMessage):
-                upsert_conversation(
-                    db,
-                    conversation_name,
-                    message.session_id,
-                    str(conv_dir),
-                )
-                yield AgentMessage(
-                    type="result",
-                    session_id=message.session_id,
-                    text=message.result,
-                )
+        collected: list[AgentMessage] = []
+
+        async def _on_text(text: str) -> None:
+            collected.append(AgentMessage(type="text", text=text))
+
+        async def _on_result(msg: ResultMessage) -> None:
+            upsert_conversation(db, conversation_name, msg.session_id, str(conv_dir))
+            collected.append(
+                AgentMessage(type="result", session_id=msg.session_id, text=msg.result)
+            )
+
+        await consume_sdk_response(client, on_text=_on_text, on_result=_on_result)
+
+        for msg in collected:
+            yield msg
