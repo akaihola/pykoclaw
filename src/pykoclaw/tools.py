@@ -8,6 +8,7 @@ from pykoclaw.db import (
     DbConnection,
     create_task,
     delete_task,
+    get_all_tasks,
     get_task,
     get_tasks_for_conversation,
     update_task,
@@ -93,18 +94,43 @@ def make_mcp_server(db: DbConnection, conversation: str):
 
     @tool(
         "list_tasks",
-        "List all tasks for the current conversation.",
-        {},
+        "List scheduled tasks. By default lists tasks for the current conversation only. "
+        "Set all=true to list tasks across all conversations.",
+        {
+            "type": "object",
+            "properties": {
+                "all": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, list tasks from all conversations, "
+                        "not just the current one."
+                    ),
+                },
+            },
+        },
     )
     async def list_tasks(args: dict[str, Any]) -> dict[str, Any]:
-        tasks = get_tasks_for_conversation(db, conversation)
+        show_all = args.get("all", False)
+        if show_all:
+            tasks = get_all_tasks(db)
+        else:
+            tasks = get_tasks_for_conversation(db, conversation)
+
         if not tasks:
-            return {"content": [{"type": "text", "text": "No tasks scheduled."}]}
+            scope = "anywhere" if show_all else "for this conversation"
+            return {
+                "content": [
+                    {"type": "text", "text": f"No tasks scheduled {scope}."}
+                ]
+            }
 
         lines = ["Tasks:"]
         for task in tasks:
+            prefix = f"  {task.id}: "
+            if show_all:
+                prefix += f"[{task.conversation}] "
             lines.append(
-                f"  {task.id}: {task.prompt[:50]} ({task.status}, next: {task.next_run})"
+                f"{prefix}{task.prompt[:50]} ({task.status}, next: {task.next_run})"
             )
 
         return {"content": [{"type": "text", "text": "\n".join(lines)}]}
