@@ -15,6 +15,7 @@ from claude_agent_sdk import (
     ClaudeSDKClient,
     ResultMessage,
     TextBlock,
+    ToolUseBlock,
 )
 
 
@@ -36,15 +37,31 @@ async def consume_sdk_response(
       contained no messages.
     """
     had_text_blocks = False
+    # Track whether a tool-use gap occurred since the last emitted text.
+    # When the agent produces text, then uses a tool, then produces more
+    # text, the two text runs would otherwise be concatenated without any
+    # whitespace (e.g. "I will do X:Good, now Y:").  Emitting a markdown
+    # horizontal rule ("---") between the two runs creates a visual bubble
+    # break in Mitto (whose coalescing logic splits on <hr/>) and a clear
+    # section separator for other consumers.
+    pending_separator = False
     final_result: ResultMessage | None = None
 
     async for message in client.receive_response():
         if isinstance(message, AssistantMessage):
             for block in message.content:
                 if isinstance(block, TextBlock) and block.text:
-                    had_text_blocks = True
                     if on_text is not None:
+                        if pending_separator:
+                            await on_text("\n\n---\n\n")
+                            pending_separator = False
                         await on_text(block.text)
+                    had_text_blocks = True
+                elif isinstance(block, ToolUseBlock) and had_text_blocks:
+                    # The SDK typically sends TextBlock and ToolUseBlock
+                    # in separate single-block AssistantMessages, so we
+                    # check per-block rather than per-message.
+                    pending_separator = True
 
         elif isinstance(message, ResultMessage):
             final_result = message

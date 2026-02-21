@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
+from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, ToolUseBlock
 
 from pykoclaw.sdk_consume import consume_sdk_response
 
@@ -55,6 +55,20 @@ def _result_msg(
 def _assistant_msg(*texts: str) -> AssistantMessage:
     return AssistantMessage(
         content=[TextBlock(text=t) for t in texts],
+        model="test",
+    )
+
+
+def _tool_use_msg(tool_name: str = "Bash") -> AssistantMessage:
+    """Create an AssistantMessage containing only a ToolUseBlock.
+
+    The Claude Code SDK typically sends TextBlock and ToolUseBlock in
+    *separate* single-block AssistantMessages rather than combining them.
+    """
+    return AssistantMessage(
+        content=[
+            ToolUseBlock(id="tool-1", name=tool_name, input={"command": "ls"}),
+        ],
         model="test",
     )
 
@@ -218,6 +232,91 @@ async def test_result_fallback_not_sent_when_result_empty() -> None:
     )
 
     assert texts == []
+
+
+@pytest.mark.asyncio
+async def test_separator_inserted_between_tool_use_turns() -> None:
+    """Text after a tool-use gap must be separated by a markdown horizontal rule.
+
+    Without this, Mitto concatenates "I will do X:Good, now Y:" because
+    the hidden tool call produces no visible text.  The "---" separator
+    becomes an <hr/> which Mitto's coalescing logic uses to split into
+    separate speech bubbles.
+
+    The SDK sends TextBlock and ToolUseBlock as separate single-block
+    AssistantMessages (verified empirically), so the test mirrors that.
+    """
+    client = FakeClient(
+        messages=[
+            _assistant_msg("I will do X:"),
+            _tool_use_msg(),
+            # UserMessage with tool result (ignored by consumer)
+            _assistant_msg("Good, now Y:"),
+            _tool_use_msg(),
+            _assistant_msg("Final answer."),
+            _result_msg(result="done"),
+        ]
+    )
+
+    texts: list[str] = []
+    await consume_sdk_response(
+        client, on_text=lambda t: _append(texts, t)  # type: ignore[arg-type]
+    )
+
+    assert texts == [
+        "I will do X:",
+        "\n\n---\n\n",
+        "Good, now Y:",
+        "\n\n---\n\n",
+        "Final answer.",
+    ]
+    # Concatenated result should have horizontal-rule separators that
+    # Mitto's coalescing logic turns into separate speech bubbles.
+    assert "".join(texts) == "I will do X:\n\n---\n\nGood, now Y:\n\n---\n\nFinal answer."
+
+
+@pytest.mark.asyncio
+async def test_no_separator_without_tool_use() -> None:
+    """Consecutive text-only AssistantMessages should NOT get separators.
+
+    Only tool-use gaps trigger the separator.
+    """
+    client = FakeClient(
+        messages=[
+            _assistant_msg("Part one."),
+            _assistant_msg("Part two."),
+            _result_msg(result="done"),
+        ]
+    )
+
+    texts: list[str] = []
+    await consume_sdk_response(
+        client, on_text=lambda t: _append(texts, t)  # type: ignore[arg-type]
+    )
+
+    assert texts == ["Part one.", "Part two."]
+
+
+@pytest.mark.asyncio
+async def test_no_separator_when_first_message_has_tool_but_no_text() -> None:
+    """A tool-use message with no preceding text should not produce a separator."""
+    # This can happen when the agent jumps straight to a tool call with no
+    # explanatory text first.
+    client = FakeClient(
+        messages=[
+            _tool_use_msg(),
+            _assistant_msg("Result after tool."),
+            _result_msg(result="done"),
+        ]
+    )
+
+    texts: list[str] = []
+    await consume_sdk_response(
+        client, on_text=lambda t: _append(texts, t)  # type: ignore[arg-type]
+    )
+
+    # No separator because no text was emitted before the tool-use message
+    assert texts == ["Result after tool."]
 
 
 # ---------------------------------------------------------------------------
