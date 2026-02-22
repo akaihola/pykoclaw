@@ -16,8 +16,17 @@ from claude_agent_sdk import (
 
 from pykoclaw.config import settings
 from pykoclaw.db import DbConnection, upsert_conversation
+from pykoclaw.plugins import load_plugins
 from pykoclaw.sdk_consume import consume_sdk_response
 from pykoclaw.tools import make_mcp_server
+
+# Suppress the chatty "Using bundled Claude Code CLI: ..." INFO line that
+# fires on every subprocess spawn — it adds no diagnostic value at INFO level.
+import logging as _logging
+
+_logging.getLogger("claude_agent_sdk._internal.transport.subprocess_cli").setLevel(
+    _logging.WARNING
+)
 
 
 def prompt_hash(system_prompt: str | None) -> str | None:
@@ -45,7 +54,7 @@ _DEFAULT_ALLOWED_TOOLS = [
     "Grep",
     "WebSearch",
     "WebFetch",
-    "mcp__pykoclaw__*",
+    "mcp__*",  # Allow all MCP servers (built-in and plugin-provided)
 ]
 
 
@@ -67,6 +76,13 @@ async def query_agent(
     mcp_servers: dict[str, Any] = {
         "pykoclaw": make_mcp_server(db, conversation_name),
     }
+
+    # Load plugins and collect their MCP servers
+    plugins = load_plugins()
+    for plugin in plugins:
+        plugin_servers = plugin.get_mcp_servers(db, conversation_name)
+        mcp_servers.update(plugin_servers)
+
     if extra_mcp_servers:
         mcp_servers.update(extra_mcp_servers)
 
