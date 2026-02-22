@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,73 @@ from pykoclaw.db import (
 )
 from pykoclaw.models import ScheduledTask
 from pykoclaw.scheduling import compute_next_run
+
+log = logging.getLogger(__name__)
+
+# Known channel prefixes used in conversation names (e.g. "wa-...", "matrix-...").
+_KNOWN_CHANNEL_PREFIXES = {"wa", "acp", "matrix", "tg", "chat"}
+
+
+def _has_known_prefix(conversation: str) -> bool:
+    """Return True if ``conversation`` starts with a known channel prefix + dash."""
+    return any(conversation.startswith(f"{p}-") for p in _KNOWN_CHANNEL_PREFIXES)
+
+
+def resolve_delivery_target(task: ScheduledTask) -> tuple[str, str]:
+    """Determine the delivery conversation and channel prefix for a task.
+
+    When ``target_conversation`` is set but lacks a recognised channel prefix
+    (e.g. a bare WhatsApp JID like ``120363...@g.us`` or a bare Matrix room
+    like ``!abc:matrix.org``), the prefix is inherited from
+    ``task.conversation``.  The conversation name is also reconstructed so
+    channel plugins can route the delivery correctly.
+
+    Returns:
+        ``(conversation, channel_prefix)`` tuple ready for
+        :func:`~pykoclaw.db.enqueue_delivery`.
+    """
+    delivery_conversation = task.target_conversation or task.conversation
+
+    if _has_known_prefix(delivery_conversation):
+        return delivery_conversation, parse_channel_prefix(delivery_conversation)
+
+    # Bare identifier — inherit prefix from the originating conversation.
+    if not _has_known_prefix(task.conversation):
+        # Can't infer — fall through with the default.
+        prefix = parse_channel_prefix(delivery_conversation)
+        log.warning(
+            "Cannot infer channel prefix for delivery target %r "
+            "(origin conversation %r also has no known prefix)",
+            delivery_conversation,
+            task.conversation,
+        )
+        return delivery_conversation, prefix
+
+    origin_prefix = parse_channel_prefix(task.conversation)
+
+    # Check if the bare target is the tail of the originating conversation name.
+    # e.g. origin="wa-tyko-120363...@g.us", target="120363...@g.us"
+    #      → suffix "tyko-120363...@g.us" ends with target → reuse origin.
+    origin_suffix = (
+        task.conversation.split("-", 1)[1] if "-" in task.conversation else ""
+    )
+    if origin_suffix.endswith(delivery_conversation):
+        log.info(
+            "Bare target %r matched origin %r — using origin as delivery conversation",
+            delivery_conversation,
+            task.conversation,
+        )
+        return task.conversation, origin_prefix
+
+    # Bare target doesn't match the origin's suffix — prepend the prefix.
+    reconstructed = f"{origin_prefix}-{delivery_conversation}"
+    log.info(
+        "Bare target %r — prepending prefix %r → %r",
+        delivery_conversation,
+        origin_prefix,
+        reconstructed,
+    )
+    return reconstructed, origin_prefix
 
 
 async def run_task(task: ScheduledTask, db: DbConnection, data_dir: Path) -> None:
@@ -72,13 +140,13 @@ async def run_task(task: ScheduledTask, db: DbConnection, data_dir: Path) -> Non
     )
 
     if result_text and not error_msg:
-        delivery_conversation = task.target_conversation or task.conversation
+        delivery_conversation, channel_prefix = resolve_delivery_target(task)
         enqueue_delivery(
             db,
             task_id=task.id,
             task_run_log_id=None,
             conversation=delivery_conversation,
-            channel_prefix=parse_channel_prefix(delivery_conversation),
+            channel_prefix=channel_prefix,
             message=result_text,
         )
 

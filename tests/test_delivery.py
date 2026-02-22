@@ -150,6 +150,74 @@ def test_target_conversation_overrides_originating(
     assert len(acp_pending) == 0
 
 
+def test_target_conversation_bare_jid_inherits_prefix(
+    db: sqlite3.Connection, data_dir: Path
+) -> None:
+    """When target_conversation is a bare JID (no channel prefix), the scheduler
+    should inherit the channel prefix from task.conversation so the delivery
+    is routable.  This is the 'BANANAS bug' — see scheduler.py."""
+    upsert_conversation(db, "wa-tyko-120363407060889798@g.us", "sess-1", "/tmp/test")
+    create_task(
+        db,
+        task_id="t-bare",
+        conversation="wa-tyko-120363407060889798@g.us",
+        prompt="remind about bananas",
+        schedule_type="once",
+        schedule_value="2020-01-01T00:00:00Z",
+        next_run="2020-01-01T00:00:00Z",
+        target_conversation="120363407060889798@g.us",
+    )
+
+    task = get_task(db, task_id="t-bare")
+    assert task is not None
+
+    with patch("pykoclaw.scheduler.query_agent", side_effect=_fake_agent_gen):
+        asyncio.run(run_task(task, db, data_dir))
+
+    # Must be picked up by the 'wa' channel, NOT stuck as 'chat'
+    wa_pending = get_pending_deliveries(db, "wa")
+    assert len(wa_pending) == 1
+    assert wa_pending[0].channel_prefix == "wa"
+    # Conversation should include the full prefixed name
+    assert wa_pending[0].conversation == "wa-tyko-120363407060889798@g.us"
+
+    # Must NOT end up in the 'chat' dead-letter channel
+    chat_pending = get_pending_deliveries(db, "chat")
+    assert len(chat_pending) == 0
+
+
+def test_target_conversation_matrix_bare_room_inherits_prefix(
+    db: sqlite3.Connection, data_dir: Path
+) -> None:
+    """Same as above but for Matrix — bare room ID should inherit 'matrix' prefix."""
+    upsert_conversation(
+        db, "matrix-!RHetEGOWFgXEsOojtZ:matrix.org", "sess-1", "/tmp/test"
+    )
+    create_task(
+        db,
+        task_id="t-matrix-bare",
+        conversation="matrix-!RHetEGOWFgXEsOojtZ:matrix.org",
+        prompt="daily report",
+        schedule_type="once",
+        schedule_value="2020-01-01T00:00:00Z",
+        next_run="2020-01-01T00:00:00Z",
+        target_conversation="!RHetEGOWFgXEsOojtZ:matrix.org",
+    )
+
+    task = get_task(db, task_id="t-matrix-bare")
+    assert task is not None
+
+    with patch("pykoclaw.scheduler.query_agent", side_effect=_fake_agent_gen):
+        asyncio.run(run_task(task, db, data_dir))
+
+    matrix_pending = get_pending_deliveries(db, "matrix")
+    assert len(matrix_pending) == 1
+    assert matrix_pending[0].conversation == "matrix-!RHetEGOWFgXEsOojtZ:matrix.org"
+
+    chat_pending = get_pending_deliveries(db, "chat")
+    assert len(chat_pending) == 0
+
+
 def test_channel_prefix_parsing_edge_cases() -> None:
     assert parse_channel_prefix("wa-123@s.whatsapp.net") == "wa"
     assert parse_channel_prefix("acp-abc12345") == "acp"

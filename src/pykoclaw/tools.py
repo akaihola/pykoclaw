@@ -60,7 +60,11 @@ def make_mcp_server(db: DbConnection, conversation: str):
                     "type": "string",
                     "description": (
                         "Deliver results to a different conversation instead of the "
-                        'originating one (e.g. "wa-123@s.whatsapp.net").'
+                        "originating one. Use the full prefixed conversation name "
+                        '(e.g. "wa-tyko-120363...@g.us", '
+                        '"matrix-!room:server"). '
+                        "Bare identifiers without a channel prefix will be "
+                        "auto-resolved using the originating conversation's prefix."
                     ),
                 },
             },
@@ -119,9 +123,7 @@ def make_mcp_server(db: DbConnection, conversation: str):
         if not tasks:
             scope = "anywhere" if show_all else "for this conversation"
             return {
-                "content": [
-                    {"type": "text", "text": f"No tasks scheduled {scope}."}
-                ]
+                "content": [{"type": "text", "text": f"No tasks scheduled {scope}."}]
             }
 
         lines = ["Tasks:"]
