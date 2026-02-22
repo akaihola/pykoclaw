@@ -76,7 +76,7 @@ async def query_agent(
         mcp_servers=mcp_servers,
         model=model or settings.model,
         allowed_tools=list(_DEFAULT_ALLOWED_TOOLS),
-        setting_sources=["project"],
+        setting_sources=["project", "user"],
         system_prompt=system_prompt,
         resume=resume_session_id,
         env={"SHELL": "/bin/bash"},
