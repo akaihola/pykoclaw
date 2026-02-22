@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,13 @@ from pykoclaw.config import settings
 from pykoclaw.db import DbConnection, upsert_conversation
 from pykoclaw.sdk_consume import consume_sdk_response
 from pykoclaw.tools import make_mcp_server
+
+
+def _prompt_hash(system_prompt: str | None) -> str | None:
+    """Return a short hash of the system prompt, or None if absent."""
+    if not system_prompt:
+        return None
+    return hashlib.sha256(system_prompt.encode()).hexdigest()[:16]
 
 
 @dataclass
@@ -82,8 +90,16 @@ async def query_agent(
         async def _on_text(text: str) -> None:
             collected.append(AgentMessage(type="text", text=text))
 
+        sp_hash = _prompt_hash(system_prompt)
+
         async def _on_result(msg: ResultMessage) -> None:
-            upsert_conversation(db, conversation_name, msg.session_id, str(conv_dir))
+            upsert_conversation(
+                db,
+                conversation_name,
+                msg.session_id,
+                str(conv_dir),
+                system_prompt_hash=sp_hash,
+            )
             collected.append(
                 AgentMessage(type="result", session_id=msg.session_id, text=msg.result)
             )

@@ -179,6 +179,7 @@ def init_db(db_path: Path) -> ThreadSafeConnection:
     # ALTER TABLE is a no-op if the column already exists (caught by try/except).
     _add_column(db, "scheduled_tasks", "context_mode TEXT DEFAULT 'group'")
     _add_column(db, "scheduled_tasks", "target_conversation TEXT")
+    _add_column(db, "conversations", "system_prompt_hash TEXT")
 
     return db
 
@@ -254,17 +255,24 @@ def mark_delivery_failed(db: DbConnection, delivery_id: str, error: str) -> None
     db.commit()
 
 
-def upsert_conversation(db: DbConnection, name: str, session_id: str, cwd: str) -> None:
+def upsert_conversation(
+    db: DbConnection,
+    name: str,
+    session_id: str,
+    cwd: str,
+    system_prompt_hash: str | None = None,
+) -> None:
     now = datetime.now(timezone.utc).isoformat()
     db.execute(
         dedent("""\
-        INSERT INTO conversations (name, session_id, cwd, created_at)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO conversations (name, session_id, cwd, created_at, system_prompt_hash)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(name) DO UPDATE SET
             session_id = excluded.session_id,
-            cwd = excluded.cwd
+            cwd = excluded.cwd,
+            system_prompt_hash = excluded.system_prompt_hash
     """),
-        (name, session_id, cwd, now),
+        (name, session_id, cwd, now, system_prompt_hash),
     )
     db.commit()
 

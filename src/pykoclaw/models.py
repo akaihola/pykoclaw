@@ -6,6 +6,7 @@ class Conversation(BaseModel):
     session_id: str | None = None
     cwd: str | None = None
     created_at: str
+    system_prompt_hash: str | None = None
 
 
 class ScheduledTask(BaseModel):
