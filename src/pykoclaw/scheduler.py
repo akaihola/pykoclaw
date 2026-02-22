@@ -5,15 +5,19 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pykoclaw.agent_core import query_agent
+from claude_agent_sdk import ProcessError
+
+from pykoclaw.agent_core import prompt_hash, query_agent
 from pykoclaw.db import (
     DbConnection,
     enqueue_delivery,
     get_conversation,
     get_due_tasks,
+    has_known_channel_prefix,
     log_task_run,
     parse_channel_prefix,
     update_task_after_run,
+    upsert_conversation,
 )
 from pykoclaw.models import ScheduledTask
 from pykoclaw.scheduling import compute_next_run
@@ -37,15 +41,6 @@ def strip_reply_tags(text: str) -> str:
     return "\n".join(s for s in stripped if s)
 
 
-# Known channel prefixes used in conversation names (e.g. "wa-...", "matrix-...").
-_KNOWN_CHANNEL_PREFIXES = {"wa", "acp", "matrix", "tg", "chat"}
-
-
-def _has_known_prefix(conversation: str) -> bool:
-    """Return True if ``conversation`` starts with a known channel prefix + dash."""
-    return any(conversation.startswith(f"{p}-") for p in _KNOWN_CHANNEL_PREFIXES)
-
-
 def resolve_delivery_target(task: ScheduledTask) -> tuple[str, str]:
     """Determine the delivery conversation and channel prefix for a task.
 
@@ -61,11 +56,11 @@ def resolve_delivery_target(task: ScheduledTask) -> tuple[str, str]:
     """
     delivery_conversation = task.target_conversation or task.conversation
 
-    if _has_known_prefix(delivery_conversation):
+    if has_known_channel_prefix(delivery_conversation):
         return delivery_conversation, parse_channel_prefix(delivery_conversation)
 
     # Bare identifier — inherit prefix from the originating conversation.
-    if not _has_known_prefix(task.conversation):
+    if not has_known_channel_prefix(task.conversation):
         # Can't infer — fall through with the default.
         prefix = parse_channel_prefix(delivery_conversation)
         log.warning(
@@ -78,13 +73,16 @@ def resolve_delivery_target(task: ScheduledTask) -> tuple[str, str]:
 
     origin_prefix = parse_channel_prefix(task.conversation)
 
-    # Check if the bare target is the tail of the originating conversation name.
+    # Check if the bare target matches the tail of the originating conversation.
     # e.g. origin="wa-tyko-120363...@g.us", target="120363...@g.us"
-    #      → suffix "tyko-120363...@g.us" ends with target → reuse origin.
+    #      → suffix "tyko-120363...@g.us" ends with "-" + target → reuse origin.
+    # We require a "-" boundary to avoid false substring matches.
     origin_suffix = (
         task.conversation.split("-", 1)[1] if "-" in task.conversation else ""
     )
-    if origin_suffix.endswith(delivery_conversation):
+    if origin_suffix == delivery_conversation or origin_suffix.endswith(
+        f"-{delivery_conversation}"
+    ):
         log.info(
             "Bare target %r matched origin %r — using origin as delivery conversation",
             delivery_conversation,
@@ -103,6 +101,27 @@ def resolve_delivery_target(task: ScheduledTask) -> tuple[str, str]:
     return reconstructed, origin_prefix
 
 
+async def _run_task_agent(
+    task: ScheduledTask,
+    db: DbConnection,
+    data_dir: Path,
+    resume_session_id: str | None,
+) -> str:
+    """Run the agent for a task, returning collected text.  Extracted for retry."""
+    result_text = ""
+    async for msg in query_agent(
+        task.prompt,
+        db=db,
+        data_dir=data_dir,
+        conversation_name=task.conversation,
+        resume_session_id=resume_session_id,
+    ):
+        if msg.type == "text" and msg.text:
+            result_text += msg.text
+            print(f"[task:{task.id}] {msg.text}")
+    return result_text
+
+
 async def run_task(task: ScheduledTask, db: DbConnection, data_dir: Path) -> None:
     start_time = datetime.now(timezone.utc)
 
@@ -111,20 +130,32 @@ async def run_task(task: ScheduledTask, db: DbConnection, data_dir: Path) -> Non
     if task.context_mode == "group" and conv and conv.session_id:
         resume_session_id = conv.session_id
 
+        # Invalidate session if system prompt hash changed (e.g. code deploy).
+        if conv.system_prompt_hash:
+            current_hash = prompt_hash(task.prompt)
+            if current_hash and conv.system_prompt_hash != current_hash:
+                log.info(
+                    "Prompt hash changed for task %s — starting fresh session",
+                    task.id,
+                )
+                resume_session_id = None
+
     result_text = ""
     error_msg = None
 
     try:
-        async for msg in query_agent(
-            task.prompt,
-            db=db,
-            data_dir=data_dir,
-            conversation_name=task.conversation,
-            resume_session_id=resume_session_id,
-        ):
-            if msg.type == "text" and msg.text:
-                result_text += msg.text
-                print(f"[task:{task.id}] {msg.text}")
+        try:
+            result_text = await _run_task_agent(task, db, data_dir, resume_session_id)
+        except ProcessError:
+            if resume_session_id is None:
+                raise  # already fresh — nothing to retry
+            log.warning(
+                "Session resume failed for task %s (session=%s) — retrying fresh",
+                task.id,
+                resume_session_id,
+            )
+            upsert_conversation(db, task.conversation, None, str(data_dir))
+            result_text = await _run_task_agent(task, db, data_dir, None)
 
         if task.schedule_type in ("cron", "interval"):
             next_run = compute_next_run(task.schedule_type, task.schedule_value)

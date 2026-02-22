@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from claude_agent_sdk import ProcessError
 
 from pykoclaw.db import (
     create_task,
@@ -16,7 +17,7 @@ from pykoclaw.db import (
     parse_channel_prefix,
     upsert_conversation,
 )
-from pykoclaw.scheduler import run_task
+from pykoclaw.scheduler import resolve_delivery_target, run_task
 
 
 @pytest.fixture
@@ -372,3 +373,113 @@ def test_error_task_does_not_enqueue_delivery(
         asyncio.run(run_task(task, db, data_dir))
 
     assert len(get_pending_deliveries(db, "wa")) == 0
+
+
+def test_scheduler_retries_on_process_error(
+    db: sqlite3.Connection, data_dir: Path
+) -> None:
+    """When session resume raises ProcessError, the scheduler should clear
+    the session and retry fresh — mirroring dispatch_to_agent's behavior."""
+    upsert_conversation(db, "wa-retry", "stale-sess", "/tmp/test")
+    create_task(
+        db,
+        task_id="t-retry",
+        conversation="wa-retry",
+        prompt="check weather",
+        schedule_type="once",
+        schedule_value="2020-01-01T00:00:00Z",
+        next_run="2020-01-01T00:00:00Z",
+    )
+
+    task = get_task(db, task_id="t-retry")
+    assert task is not None
+
+    call_count = 0
+
+    async def _gen_with_retry(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if kwargs.get("resume_session_id") == "stale-sess":
+            raise ProcessError("CLI crash", exit_code=1)
+        yield _FakeMsg(type="text", text="Retried OK")
+
+    with patch("pykoclaw.scheduler.query_agent", side_effect=_gen_with_retry):
+        asyncio.run(run_task(task, db, data_dir))
+
+    assert call_count == 2
+    wa_pending = get_pending_deliveries(db, "wa")
+    assert len(wa_pending) == 1
+    assert wa_pending[0].message == "Retried OK"
+
+
+def test_scheduler_process_error_propagates_when_fresh(
+    db: sqlite3.Connection, data_dir: Path
+) -> None:
+    """ProcessError with no session to resume should propagate as an error
+    (logged, not re-raised — the outer except Exception catches it)."""
+    upsert_conversation(db, "wa-noresume", None, "/tmp/test")
+    create_task(
+        db,
+        task_id="t-noresume",
+        conversation="wa-noresume",
+        prompt="check weather",
+        schedule_type="once",
+        schedule_value="2020-01-01T00:00:00Z",
+        next_run="2020-01-01T00:00:00Z",
+    )
+
+    task = get_task(db, task_id="t-noresume")
+    assert task is not None
+
+    async def _gen_crash(*args, **kwargs):
+        raise ProcessError("CLI crash", exit_code=1)
+        yield  # noqa: RET503
+
+    with patch("pykoclaw.scheduler.query_agent", side_effect=_gen_crash):
+        # Should not raise — the outer except Exception catches it
+        asyncio.run(run_task(task, db, data_dir))
+
+    # No delivery enqueued (error path)
+    assert len(get_pending_deliveries(db, "wa")) == 0
+
+
+def test_resolve_delivery_target_endswith_boundary() -> None:
+    """Bare target must match on a '-' boundary, not arbitrary substring.
+    e.g. target='o-foo@g.us' must NOT match origin suffix 'tyko-foo@g.us'."""
+    from pykoclaw.models import ScheduledTask
+
+    task = ScheduledTask(
+        id="t-boundary",
+        conversation="wa-tyko-foo@g.us",
+        prompt="test",
+        schedule_type="once",
+        schedule_value="2020-01-01T00:00:00Z",
+        target_conversation="o-foo@g.us",
+        created_at="2025-01-01T00:00:00",
+    )
+
+    conv, prefix = resolve_delivery_target(task)
+    # Must NOT reuse "wa-tyko-foo@g.us" — the bare target "o-foo@g.us"
+    # doesn't match on a dash boundary, so it should be prepended.
+    assert conv == "wa-o-foo@g.us"
+    assert prefix == "wa"
+
+
+def test_resolve_delivery_target_exact_suffix_match() -> None:
+    """Bare target that exactly matches origin suffix (after first dash)."""
+    from pykoclaw.models import ScheduledTask
+
+    task = ScheduledTask(
+        id="t-exact",
+        conversation="wa-120363@g.us",
+        prompt="test",
+        schedule_type="once",
+        schedule_value="2020-01-01T00:00:00Z",
+        target_conversation="120363@g.us",
+        created_at="2025-01-01T00:00:00",
+    )
+
+    conv, prefix = resolve_delivery_target(task)
+    # Exact match of the suffix — reuse origin
+    assert conv == "wa-120363@g.us"
+    assert prefix == "wa"

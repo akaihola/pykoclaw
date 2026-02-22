@@ -184,11 +184,24 @@ def init_db(db_path: Path) -> ThreadSafeConnection:
     return db
 
 
+#: Known channel prefixes used in conversation names (e.g. ``"wa-..."``,
+#: ``"matrix-..."``).  Used by :func:`has_known_channel_prefix` and the
+#: scheduler's delivery target resolution.
+KNOWN_CHANNEL_PREFIXES: frozenset[str] = frozenset(
+    {"wa", "acp", "matrix", "tg", "chat"}
+)
+
+
 def parse_channel_prefix(conversation_name: str) -> str:
     """Extract prefix before first ``-``, defaulting to ``"chat"`` if no dash."""
     if "-" in conversation_name:
         return conversation_name.split("-", 1)[0]
     return "chat"
+
+
+def has_known_channel_prefix(conversation: str) -> bool:
+    """Return True if *conversation* starts with a known channel prefix + dash."""
+    return any(conversation.startswith(f"{p}-") for p in KNOWN_CHANNEL_PREFIXES)
 
 
 def enqueue_delivery(
@@ -258,7 +271,7 @@ def mark_delivery_failed(db: DbConnection, delivery_id: str, error: str) -> None
 def upsert_conversation(
     db: DbConnection,
     name: str,
-    session_id: str,
+    session_id: str | None,
     cwd: str,
     system_prompt_hash: str | None = None,
 ) -> None:

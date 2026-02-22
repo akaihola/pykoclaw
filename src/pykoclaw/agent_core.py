@@ -20,7 +20,7 @@ from pykoclaw.sdk_consume import consume_sdk_response
 from pykoclaw.tools import make_mcp_server
 
 
-def _prompt_hash(system_prompt: str | None) -> str | None:
+def prompt_hash(system_prompt: str | None) -> str | None:
     """Return a short hash of the system prompt, or None if absent."""
     if not system_prompt:
         return None
@@ -90,7 +90,7 @@ async def query_agent(
         async def _on_text(text: str) -> None:
             collected.append(AgentMessage(type="text", text=text))
 
-        sp_hash = _prompt_hash(system_prompt)
+        sp_hash = prompt_hash(system_prompt)
 
         async def _on_result(msg: ResultMessage) -> None:
             upsert_conversation(
