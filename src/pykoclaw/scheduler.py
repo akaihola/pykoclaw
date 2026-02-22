@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,23 @@ from pykoclaw.models import ScheduledTask
 from pykoclaw.scheduling import compute_next_run
 
 log = logging.getLogger(__name__)
+
+_REPLY_TAG_RE = re.compile(r"<reply>(.*?)</reply>", re.DOTALL)
+
+
+def strip_reply_tags(text: str) -> str:
+    """Extract content from ``<reply>`` tags, or return the original text.
+
+    If the text contains one or more ``<reply>...</reply>`` blocks, join their
+    stripped contents.  If no tags are found, return the original text unchanged
+    (the agent may not always use reply tags in scheduled tasks).
+    """
+    matches = _REPLY_TAG_RE.findall(text)
+    if not matches:
+        return text
+    stripped = [m.strip() for m in matches]
+    return "\n".join(s for s in stripped if s)
+
 
 # Known channel prefixes used in conversation names (e.g. "wa-...", "matrix-...").
 _KNOWN_CHANNEL_PREFIXES = {"wa", "acp", "matrix", "tg", "chat"}
@@ -147,7 +165,7 @@ async def run_task(task: ScheduledTask, db: DbConnection, data_dir: Path) -> Non
             task_run_log_id=None,
             conversation=delivery_conversation,
             channel_prefix=channel_prefix,
-            message=result_text,
+            message=strip_reply_tags(result_text),
         )
 
 

@@ -39,6 +39,10 @@ async def _fake_agent_gen(*args, **kwargs):
     yield _FakeMsg(type="text", text="Scheduled task result")
 
 
+async def _fake_agent_gen_with_reply_tags(*args, **kwargs):
+    yield _FakeMsg(type="text", text="<reply>\n🍌 BANANAS! 🍌\n</reply>")
+
+
 def test_scheduler_enqueues_delivery_for_wa_task(
     db: sqlite3.Connection, data_dir: Path
 ) -> None:
@@ -66,6 +70,38 @@ def test_scheduler_enqueues_delivery_for_wa_task(
     assert pending[0].channel_prefix == "wa"
     assert pending[0].message == "Scheduled task result"
     assert pending[0].status == "pending"
+
+
+def test_reply_tags_stripped_from_delivery_message(
+    db: sqlite3.Connection, data_dir: Path
+) -> None:
+    """Agent output wrapped in <reply> tags should have the tags stripped
+    before the message is enqueued for delivery."""
+    upsert_conversation(db, "wa-tyko-group@g.us", "sess-1", "/tmp/test")
+    create_task(
+        db,
+        task_id="t-reply",
+        conversation="wa-tyko-group@g.us",
+        prompt="remind about bananas",
+        schedule_type="once",
+        schedule_value="2020-01-01T00:00:00Z",
+        next_run="2020-01-01T00:00:00Z",
+    )
+
+    task = get_task(db, task_id="t-reply")
+    assert task is not None
+
+    with patch(
+        "pykoclaw.scheduler.query_agent",
+        side_effect=_fake_agent_gen_with_reply_tags,
+    ):
+        asyncio.run(run_task(task, db, data_dir))
+
+    pending = get_pending_deliveries(db, "wa")
+    assert len(pending) == 1
+    assert "<reply>" not in pending[0].message
+    assert "</reply>" not in pending[0].message
+    assert pending[0].message == "🍌 BANANAS! 🍌"
 
 
 def test_scheduler_enqueues_delivery_for_acp_task(
