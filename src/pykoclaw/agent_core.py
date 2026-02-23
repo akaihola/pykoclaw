@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,11 +23,12 @@ from pykoclaw.tools import make_mcp_server
 
 # Suppress the chatty "Using bundled Claude Code CLI: ..." INFO line that
 # fires on every subprocess spawn — it adds no diagnostic value at INFO level.
-import logging as _logging
-
-_logging.getLogger("claude_agent_sdk._internal.transport.subprocess_cli").setLevel(
-    _logging.WARNING
+logging.getLogger("claude_agent_sdk._internal.transport.subprocess_cli").setLevel(
+    logging.WARNING
 )
+
+log = logging.getLogger(__name__)
+_sdk_stderr_log = logging.getLogger("claude_agent_sdk.stderr")
 
 
 def prompt_hash(system_prompt: str | None) -> str | None:
@@ -86,6 +88,9 @@ async def query_agent(
     if extra_mcp_servers:
         mcp_servers.update(extra_mcp_servers)
 
+    def _on_stderr(line: str) -> None:
+        _sdk_stderr_log.debug("[%s] %s", conversation_name, line)
+
     options = ClaudeAgentOptions(
         cwd=str(conv_dir),
         permission_mode="bypassPermissions",
@@ -96,6 +101,7 @@ async def query_agent(
         system_prompt=system_prompt,
         resume=resume_session_id,
         env={"SHELL": "/bin/bash"},
+        stderr=_on_stderr,
     )
 
     async with ClaudeSDKClient(options) as client:
