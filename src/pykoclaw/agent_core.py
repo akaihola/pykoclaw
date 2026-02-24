@@ -79,11 +79,18 @@ async def query_agent(
         "pykoclaw": make_mcp_server(db, conversation_name),
     }
 
-    # Load plugins and collect their MCP servers
+    # Load plugins and collect their MCP servers.
+    # Failures in individual plugins (e.g. missing system libs) must not
+    # prevent other plugins or the agent from running.
     plugins = load_plugins()
     for plugin in plugins:
-        plugin_servers = plugin.get_mcp_servers(db, conversation_name)
-        mcp_servers.update(plugin_servers)
+        try:
+            plugin_servers = plugin.get_mcp_servers(db, conversation_name)
+            mcp_servers.update(plugin_servers)
+        except Exception:
+            log.exception(
+                "Failed to load MCP servers from %s", type(plugin).__name__
+            )
 
     if extra_mcp_servers:
         mcp_servers.update(extra_mcp_servers)
