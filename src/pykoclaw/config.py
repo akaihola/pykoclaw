@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     data: Path = Path.home() / ".local" / "share" / "pykoclaw"
     model: str = "claude-opus-4-6"
     cli_path: Path | None = None
+    idle_timeout: int = 1800  # Worker idle timeout in seconds (default 30 min)
 
     @property
     def db_path(self) -> Path:
