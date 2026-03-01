@@ -88,9 +88,7 @@ async def query_agent(
             plugin_servers = plugin.get_mcp_servers(db, conversation_name)
             mcp_servers.update(plugin_servers)
         except Exception:
-            log.exception(
-                "Failed to load MCP servers from %s", type(plugin).__name__
-            )
+            log.exception("Failed to load MCP servers from %s", type(plugin).__name__)
 
     if extra_mcp_servers:
         mcp_servers.update(extra_mcp_servers)
@@ -109,6 +107,7 @@ async def query_agent(
         resume=resume_session_id,
         env={"SHELL": "/bin/bash"},
         stderr=_on_stderr,
+        include_partial_messages=True,
     )
 
     async with ClaudeSDKClient(options) as client:

@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, ToolUseBlock
+from claude_agent_sdk.types import StreamEvent
 
 from pykoclaw.sdk_consume import consume_sdk_response
 
@@ -90,7 +91,8 @@ async def test_text_blocks_forwarded() -> None:
 
     texts: list[str] = []
     result = await consume_sdk_response(
-        client, on_text=lambda t: _append(texts, t)  # type: ignore[arg-type]
+        client,
+        on_text=lambda t: _append(texts, t),  # type: ignore[arg-type]
     )
 
     assert texts == ["Hello", "World"]
@@ -101,13 +103,12 @@ async def test_text_blocks_forwarded() -> None:
 @pytest.mark.asyncio
 async def test_result_fallback_when_no_text_blocks() -> None:
     """When no TextBlocks are streamed, ResultMessage.result is forwarded."""
-    client = FakeClient(
-        messages=[_result_msg(result="Fallback text")]
-    )
+    client = FakeClient(messages=[_result_msg(result="Fallback text")])
 
     texts: list[str] = []
     result = await consume_sdk_response(
-        client, on_text=lambda t: _append(texts, t)  # type: ignore[arg-type]
+        client,
+        on_text=lambda t: _append(texts, t),  # type: ignore[arg-type]
     )
 
     assert texts == ["Fallback text"]
@@ -126,7 +127,8 @@ async def test_no_duplication_with_text_blocks_and_result() -> None:
 
     texts: list[str] = []
     await consume_sdk_response(
-        client, on_text=lambda t: _append(texts, t)  # type: ignore[arg-type]
+        client,
+        on_text=lambda t: _append(texts, t),  # type: ignore[arg-type]
     )
 
     assert texts == ["Streamed"]
@@ -150,9 +152,7 @@ async def test_on_text_none_no_crash() -> None:
 @pytest.mark.asyncio
 async def test_on_result_none_no_crash() -> None:
     """Passing on_result=None must not raise."""
-    client = FakeClient(
-        messages=[_result_msg(session_id="sess-2", result="text")]
-    )
+    client = FakeClient(messages=[_result_msg(session_id="sess-2", result="text")])
 
     texts: list[str] = []
     result = await consume_sdk_response(
@@ -178,7 +178,8 @@ async def test_empty_text_block_skipped() -> None:
 
     texts: list[str] = []
     await consume_sdk_response(
-        client, on_text=lambda t: _append(texts, t)  # type: ignore[arg-type]
+        client,
+        on_text=lambda t: _append(texts, t),  # type: ignore[arg-type]
     )
 
     assert texts == ["Real text"]
@@ -228,7 +229,8 @@ async def test_result_fallback_not_sent_when_result_empty() -> None:
 
     texts: list[str] = []
     await consume_sdk_response(
-        client, on_text=lambda t: _append(texts, t)  # type: ignore[arg-type]
+        client,
+        on_text=lambda t: _append(texts, t),  # type: ignore[arg-type]
     )
 
     assert texts == []
@@ -260,7 +262,8 @@ async def test_separator_inserted_between_tool_use_turns() -> None:
 
     texts: list[str] = []
     await consume_sdk_response(
-        client, on_text=lambda t: _append(texts, t)  # type: ignore[arg-type]
+        client,
+        on_text=lambda t: _append(texts, t),  # type: ignore[arg-type]
     )
 
     assert texts == [
@@ -272,7 +275,9 @@ async def test_separator_inserted_between_tool_use_turns() -> None:
     ]
     # Concatenated result should have horizontal-rule separators that
     # Mitto's coalescing logic turns into separate speech bubbles.
-    assert "".join(texts) == "I will do X:\n\n---\n\nGood, now Y:\n\n---\n\nFinal answer."
+    assert (
+        "".join(texts) == "I will do X:\n\n---\n\nGood, now Y:\n\n---\n\nFinal answer."
+    )
 
 
 @pytest.mark.asyncio
@@ -291,7 +296,8 @@ async def test_no_separator_without_tool_use() -> None:
 
     texts: list[str] = []
     await consume_sdk_response(
-        client, on_text=lambda t: _append(texts, t)  # type: ignore[arg-type]
+        client,
+        on_text=lambda t: _append(texts, t),  # type: ignore[arg-type]
     )
 
     assert texts == ["Part one.", "Part two."]
@@ -312,11 +318,208 @@ async def test_no_separator_when_first_message_has_tool_but_no_text() -> None:
 
     texts: list[str] = []
     await consume_sdk_response(
-        client, on_text=lambda t: _append(texts, t)  # type: ignore[arg-type]
+        client,
+        on_text=lambda t: _append(texts, t),  # type: ignore[arg-type]
     )
 
     # No separator because no text was emitted before the tool-use message
     assert texts == ["Result after tool."]
+
+
+# ---------------------------------------------------------------------------
+# Streaming (StreamEvent / include_partial_messages=True) tests
+# ---------------------------------------------------------------------------
+
+
+def _stream_event(event: dict) -> StreamEvent:
+    """Wrap a raw Anthropic stream event dict in a StreamEvent."""
+    return StreamEvent(uuid="u1", session_id="sess-1", event=event)
+
+
+def _cbs(idx: int) -> StreamEvent:
+    """content_block_start for a text block at *idx*."""
+    return _stream_event(
+        {"type": "content_block_start", "index": idx, "content_block": {"type": "text"}}
+    )
+
+
+def _cbd(idx: int, text: str) -> StreamEvent:
+    """content_block_delta with a text_delta for block at *idx*."""
+    return _stream_event(
+        {
+            "type": "content_block_delta",
+            "index": idx,
+            "delta": {"type": "text_delta", "text": text},
+        }
+    )
+
+
+def _cbe(idx: int) -> StreamEvent:
+    """content_block_stop for block at *idx*."""
+    return _stream_event({"type": "content_block_stop", "index": idx})
+
+
+def _tool_cbs(idx: int) -> StreamEvent:
+    """content_block_start for a tool_use block at *idx*."""
+    return _stream_event(
+        {
+            "type": "content_block_start",
+            "index": idx,
+            "content_block": {"type": "tool_use", "id": "t1", "name": "Bash"},
+        }
+    )
+
+
+def _msg_stop() -> StreamEvent:
+    return _stream_event({"type": "message_stop"})
+
+
+@pytest.mark.asyncio
+async def test_streaming_deltas_forwarded() -> None:
+    """StreamEvent text_delta tokens must each trigger on_text."""
+    client = FakeClient(
+        messages=[
+            _cbs(0),
+            _cbd(0, "Hello"),
+            _cbd(0, ", "),
+            _cbd(0, "world"),
+            _cbe(0),
+            _msg_stop(),
+            _assistant_msg("Hello, world"),  # complete message — must be suppressed
+            _result_msg(result="Hello, world"),
+        ]
+    )
+
+    texts: list[str] = []
+    await consume_sdk_response(
+        client,
+        on_text=lambda t: _append(texts, t),  # type: ignore[arg-type]
+    )
+
+    # Only the three deltas — not the redundant AssistantMessage TextBlock
+    assert texts == ["Hello", ", ", "world"]
+
+
+@pytest.mark.asyncio
+async def test_streaming_no_double_emission() -> None:
+    """AssistantMessage TextBlocks must be skipped when streaming was active."""
+    client = FakeClient(
+        messages=[
+            _cbs(0),
+            _cbd(0, "streamed"),
+            _cbe(0),
+            _msg_stop(),
+            _assistant_msg("streamed"),  # would be a duplicate
+            _result_msg(result="streamed"),
+        ]
+    )
+
+    texts: list[str] = []
+    await consume_sdk_response(
+        client,
+        on_text=lambda t: _append(texts, t),  # type: ignore[arg-type]
+    )
+
+    assert texts == ["streamed"]
+    assert texts.count("streamed") == 1
+
+
+@pytest.mark.asyncio
+async def test_streaming_result_fallback_not_duplicated() -> None:
+    """ResultMessage.result must NOT be forwarded when streaming deltas fired."""
+    client = FakeClient(
+        messages=[
+            _cbs(0),
+            _cbd(0, "the answer"),
+            _cbe(0),
+            _msg_stop(),
+            _assistant_msg("the answer"),
+            _result_msg(result="the answer"),
+        ]
+    )
+
+    texts: list[str] = []
+    await consume_sdk_response(
+        client,
+        on_text=lambda t: _append(texts, t),  # type: ignore[arg-type]
+    )
+
+    assert texts == ["the answer"]
+
+
+@pytest.mark.asyncio
+async def test_streaming_separator_between_tool_turns() -> None:
+    """A tool-use block between two streaming text blocks must produce a separator."""
+    client = FakeClient(
+        messages=[
+            # First text run
+            _cbs(0),
+            _cbd(0, "Before tool."),
+            _cbe(0),
+            _msg_stop(),
+            _assistant_msg("Before tool."),
+            # Tool use
+            _tool_cbs(0),
+            _cbe(0),
+            _msg_stop(),
+            _tool_use_msg(),
+            # Second text run
+            _cbs(0),
+            _cbd(0, "After tool."),
+            _cbe(0),
+            _msg_stop(),
+            _assistant_msg("After tool."),
+            _result_msg(result="done"),
+        ]
+    )
+
+    texts: list[str] = []
+    await consume_sdk_response(
+        client,
+        on_text=lambda t: _append(texts, t),  # type: ignore[arg-type]
+    )
+
+    assert texts == ["Before tool.", "\n\n---\n\n", "After tool."]
+
+
+@pytest.mark.asyncio
+async def test_streaming_non_text_delta_ignored() -> None:
+    """Deltas for non-text blocks (e.g. tool input) must not reach on_text."""
+    client = FakeClient(
+        messages=[
+            # Tool block — not a text block, so its deltas are ignored
+            _stream_event(
+                {
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {"type": "tool_use", "id": "t1", "name": "Bash"},
+                }
+            ),
+            _stream_event(
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "input_json_delta", "partial_json": '{"cmd":'},
+                }
+            ),
+            _cbe(0),
+            # Real text block
+            _cbs(1),
+            _cbd(1, "Result."),
+            _cbe(1),
+            _msg_stop(),
+            _assistant_msg("Result."),
+            _result_msg(result="done"),
+        ]
+    )
+
+    texts: list[str] = []
+    await consume_sdk_response(
+        client,
+        on_text=lambda t: _append(texts, t),  # type: ignore[arg-type]
+    )
+
+    assert texts == ["Result."]
 
 
 # ---------------------------------------------------------------------------
