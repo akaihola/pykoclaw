@@ -188,7 +188,7 @@ def init_db(db_path: Path) -> ThreadSafeConnection:
 #: ``"matrix-..."``).  Used by :func:`has_known_channel_prefix` and the
 #: scheduler's delivery target resolution.
 KNOWN_CHANNEL_PREFIXES: frozenset[str] = frozenset(
-    {"wa", "acp", "matrix", "tg", "chat"}
+    {"wa", "acp", "matrix", "tg", "chat", "slack"}
 )
 
 
