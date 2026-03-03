@@ -1,6 +1,9 @@
 import asyncio
+import json
 import sqlite3
+import urllib.error
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -194,3 +197,120 @@ def test_list_tasks_empty_default(db: sqlite3.Connection) -> None:
 
     text = result.content[0].text
     assert "this conversation" in text
+
+
+# --- brave_search tests ---
+
+_FAKE_BRAVE_RESPONSE = {
+    "web": {
+        "results": [
+            {
+                "title": "AI Coding Agents 2026",
+                "url": "https://example.com/ai-coding",
+                "description": "A guide to AI coding agents.",
+            },
+            {
+                "title": "Claude Code Tutorial",
+                "url": "https://example.com/claude",
+                "description": "How to use Claude Code.",
+            },
+        ]
+    }
+}
+
+
+def _make_urlopen_mock(response_body: bytes) -> MagicMock:
+    """Return a mock suitable for patching urllib.request.urlopen."""
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = response_body
+    mock_cm = MagicMock()
+    mock_cm.__enter__.return_value = mock_resp
+    mock_cm.__exit__.return_value = False
+    return mock_cm
+
+
+import pykoclaw.config as _config_mod  # noqa: E402 – used in brave_search patches
+
+
+def test_brave_search_absent_without_key(db: sqlite3.Connection) -> None:
+    """brave_search is not registered when BRAVE_API_KEY is not configured."""
+    from mcp.types import ListToolsRequest
+
+    upsert_conversation(db, "test", "sess-1", "/tmp/test")
+    with patch.object(_config_mod.settings, "brave_api_key", None):
+        server = make_mcp_server(db, "test")
+
+    handler = server["instance"].request_handlers[ListToolsRequest]
+    result = asyncio.run(handler(ListToolsRequest()))
+    tool_names = {t.name for t in result.root.tools}
+
+    assert "brave_search" not in tool_names
+
+
+def test_brave_search_present_with_key(db: sqlite3.Connection) -> None:
+    """brave_search is registered when BRAVE_API_KEY is configured."""
+    from mcp.types import ListToolsRequest
+
+    upsert_conversation(db, "test", "sess-1", "/tmp/test")
+    with patch.object(_config_mod.settings, "brave_api_key", "test-key"):
+        server = make_mcp_server(db, "test")
+
+    handler = server["instance"].request_handlers[ListToolsRequest]
+    result = asyncio.run(handler(ListToolsRequest()))
+    tool_names = {t.name for t in result.root.tools}
+
+    assert "brave_search" in tool_names
+
+
+def test_brave_search_returns_results(db: sqlite3.Connection) -> None:
+    """brave_search formats and returns titles, URLs, and snippets."""
+    upsert_conversation(db, "test", "sess-1", "/tmp/test")
+    with patch.object(_config_mod.settings, "brave_api_key", "test-key"):
+        server = make_mcp_server(db, "test")
+
+    mock_cm = _make_urlopen_mock(json.dumps(_FAKE_BRAVE_RESPONSE).encode())
+    with patch("urllib.request.urlopen", return_value=mock_cm):
+        result = _call_tool(server["instance"], "brave_search", {"query": "AI coding"})
+
+    text = result.content[0].text
+    assert "AI Coding Agents 2026" in text
+    assert "https://example.com/ai-coding" in text
+    assert "Claude Code Tutorial" in text
+    assert "https://example.com/claude" in text
+
+
+def test_brave_search_no_results(db: sqlite3.Connection) -> None:
+    """brave_search returns a descriptive message when no results are found."""
+    upsert_conversation(db, "test", "sess-1", "/tmp/test")
+    with patch.object(_config_mod.settings, "brave_api_key", "test-key"):
+        server = make_mcp_server(db, "test")
+
+    empty = json.dumps({"web": {"results": []}}).encode()
+    mock_cm = _make_urlopen_mock(empty)
+    with patch("urllib.request.urlopen", return_value=mock_cm):
+        result = _call_tool(
+            server["instance"], "brave_search", {"query": "xyzzy obscure query"}
+        )
+
+    text = result.content[0].text
+    assert "No results" in text
+
+
+def test_brave_search_http_error(db: sqlite3.Connection) -> None:
+    """brave_search returns an error message on HTTP failures."""
+    upsert_conversation(db, "test", "sess-1", "/tmp/test")
+    with patch.object(_config_mod.settings, "brave_api_key", "test-key"):
+        server = make_mcp_server(db, "test")
+
+    http_err = urllib.error.HTTPError(
+        url="https://api.search.brave.com/res/v1/web/search",
+        code=429,
+        msg="Too Many Requests",
+        hdrs=MagicMock(),
+        fp=None,
+    )
+    with patch("urllib.request.urlopen", side_effect=http_err):
+        result = _call_tool(server["instance"], "brave_search", {"query": "test"})
+
+    text = result.content[0].text
+    assert "429" in text or "Too Many Requests" in text

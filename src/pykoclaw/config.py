@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 
 
@@ -18,6 +19,12 @@ class Settings(BaseSettings):
     model: str = "claude-opus-4-6"
     cli_path: Path | None = None
     idle_timeout: int = 1800  # Worker idle timeout in seconds (default 30 min)
+    # Accept BRAVE_API_KEY (no prefix) or PYKOCLAW_BRAVE_API_KEY.
+    # The env_prefix is not applied when validation_alias is set.
+    brave_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("BRAVE_API_KEY", "PYKOCLAW_BRAVE_API_KEY"),
+    )
 
     @property
     def db_path(self) -> Path:
