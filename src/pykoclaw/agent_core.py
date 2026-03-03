@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import shutil
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from pathlib import Path
@@ -97,6 +98,7 @@ async def query_agent(
         _sdk_stderr_log.debug("[%s] %s", conversation_name, line)
 
     options = ClaudeAgentOptions(
+        cli_path=shutil.which("claude"),
         cwd=str(conv_dir),
         permission_mode="bypassPermissions",
         mcp_servers=mcp_servers,
