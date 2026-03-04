@@ -38,3 +38,14 @@ def test_query_agent_function_signature() -> None:
     assert "resume_session_id" in params
     assert "extra_mcp_servers" in params
     assert "model" in params
+    assert "include_partial_messages" in params
+
+
+def test_query_agent_include_partial_messages_default() -> None:
+    """include_partial_messages defaults to True (preserves streaming for chat REPL)."""
+    from inspect import signature
+
+    from pykoclaw.agent_core import query_agent
+
+    sig = signature(query_agent)
+    assert sig.parameters["include_partial_messages"].default is True
