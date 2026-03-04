@@ -71,6 +71,7 @@ async def query_agent(
     resume_session_id: str | None = None,
     extra_mcp_servers: dict[str, Any] | None = None,
     model: str | None = None,
+    include_partial_messages: bool = True,
 ) -> AsyncGenerator[AgentMessage, None]:
     """Send *prompt* to the Claude agent and yield response messages."""
     conv_dir = data_dir / "conversations" / conversation_name
@@ -109,7 +110,7 @@ async def query_agent(
         resume=resume_session_id,
         env={"SHELL": "/bin/bash"},
         stderr=_on_stderr,
-        include_partial_messages=True,
+        include_partial_messages=include_partial_messages,
     )
 
     async with ClaudeSDKClient(options) as client:
