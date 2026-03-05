@@ -1,9 +1,14 @@
+import json
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 from textwrap import dedent
 from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from pykoclaw.config import settings
 from pykoclaw.db import (
     DbConnection,
     create_task,
@@ -182,7 +187,95 @@ def make_mcp_server(db: DbConnection, conversation: str):
             "content": [{"type": "text", "text": f"Task {args['task_id']} cancelled."}]
         }
 
+    tools: list[Any] = [schedule_task, list_tasks, pause_task, resume_task, cancel_task]
+
+    if api_key := settings.brave_api_key:  # type: ignore[attr-defined]
+
+        @tool(
+            "brave_search",
+            dedent("""\
+            Search the web using Brave Search. Use this instead of WebSearch
+            (which is US-only and returns empty results outside the US).
+            Returns titles, URLs, and descriptions for matching pages."""),
+            {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query string.",
+                    },
+                    "count": {
+                        "type": "integer",
+                        "description": "Number of results to return (1–20, default 10).",
+                    },
+                    "freshness": {
+                        "type": "string",
+                        "enum": ["pd", "pw", "pm", "py"],
+                        "description": (
+                            "Limit results by age: "
+                            "pd=past day, pw=past week, "
+                            "pm=past month, py=past year."
+                        ),
+                    },
+                },
+                "required": ["query"],
+            },
+        )
+        async def brave_search(args: dict[str, Any]) -> dict[str, Any]:
+            query = args["query"]
+            count = min(int(args.get("count", 10)), 20)
+            params: dict[str, str | int] = {"q": query, "count": count}
+            if freshness := args.get("freshness"):
+                params["freshness"] = freshness
+
+            url = (
+                "https://api.search.brave.com/res/v1/web/search?"
+                + urllib.parse.urlencode(params)
+            )
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "Accept": "application/json",
+                    "X-Subscription-Token": api_key,
+                },
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = json.loads(resp.read())
+            except urllib.error.HTTPError as e:
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"Brave Search error: HTTP {e.code} {e.reason}",
+                        }
+                    ]
+                }
+            except Exception as e:
+                return {
+                    "content": [{"type": "text", "text": f"Brave Search error: {e}"}]
+                }
+
+            results = data.get("web", {}).get("results", [])
+            if not results:
+                return {
+                    "content": [
+                        {"type": "text", "text": f"No results found for: {query}"}
+                    ]
+                }
+
+            lines = []
+            for r in results:
+                title = r.get("title", "")
+                result_url = r.get("url", "")
+                snippet = r.get("description", "")
+                lines.append(f"**{title}**\n{result_url}\n{snippet}")
+
+            return {"content": [{"type": "text", "text": "\n\n".join(lines)}]}
+
+        tools.append(brave_search)
+
     return create_sdk_mcp_server(
         name="pykoclaw",
-        tools=[schedule_task, list_tasks, pause_task, resume_task, cancel_task],
+        tools=tools,
     )

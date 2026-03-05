@@ -21,6 +21,11 @@ with built-in task scheduling and conversation persistence.
 - **MCP tools** -- A built-in MCP server exposes task management tools
   (`schedule_task`, `list_tasks`, `pause_task`, `resume_task`, `cancel_task`) to
   the agent.
+- **Web search** -- When `BRAVE_API_KEY` is configured, the `brave_search` MCP
+  tool is automatically registered. It uses the [Brave Search API] to perform
+  geo-unrestricted web searches. Claude Code's built-in `WebSearch` is US-only
+  and returns empty results outside the US; `brave_search` is the intended
+  replacement for international deployments.
 
 ## Installation
 
@@ -68,11 +73,12 @@ pykoclaw whatsapp run     # WhatsApp listener (pykoclaw-whatsapp plugin)
 
 Settings are read from environment variables with the `PYKOCLAW_` prefix:
 
-| Variable             | Default                   | Description                                       |
-| -------------------- | ------------------------- | ------------------------------------------------- |
-| `PYKOCLAW_DATA`      | `~/.local/share/pykoclaw` | Data directory (database, conversations, history) |
-| `PYKOCLAW_MODEL`     | `claude-opus-4-6`         | Claude model to use                               |
-| `PYKOCLAW_CLI_PATH`  | *(bundled)*               | Path to Claude CLI binary (overrides bundled SDK) |
+| Variable                                        | Default                   | Description                                                       |
+| ----------------------------------------------- | ------------------------- | ----------------------------------------------------------------- |
+| `PYKOCLAW_DATA`                                 | `~/.local/share/pykoclaw` | Data directory (database, conversations, history)                 |
+| `PYKOCLAW_MODEL`                                | `claude-opus-4-6`         | Claude model to use                                               |
+| `PYKOCLAW_CLI_PATH`                             | *(bundled)*               | Path to Claude CLI binary (overrides bundled SDK)                 |
+| `BRAVE_API_KEY` or `PYKOCLAW_BRAVE_API_KEY`     | *(unset)*                 | Brave Search API key — enables the `brave_search` MCP tool        |
 
 ## Data directory layout
 
@@ -149,3 +155,5 @@ pykoclaw scheduler
 | [pykoclaw-whatsapp](https://github.com/akaihola/pykoclaw-whatsapp)   | WhatsApp integration                   |
 | [pykoclaw-acp](https://github.com/akaihola/pykoclaw-acp)             | Agent Client Protocol (ACP) server     |
 | [pykoclaw-messaging](https://github.com/akaihola/pykoclaw-messaging) | Shared channel-agnostic dispatch       |
+
+[Brave Search API]: https://brave.com/search/api/
