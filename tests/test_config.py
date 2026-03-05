@@ -227,3 +227,68 @@ class TestSettingsMissingEnvFile:
         settings = Settings()
 
         assert settings.model == "claude-opus-4-6"
+
+
+class TestBraveApiKey:
+    """Test brave_api_key accepts both BRAVE_API_KEY and PYKOCLAW_BRAVE_API_KEY."""
+
+    def test_brave_api_key_defaults_to_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """brave_api_key is None when neither env var is set."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("BRAVE_API_KEY", raising=False)
+        monkeypatch.delenv("PYKOCLAW_BRAVE_API_KEY", raising=False)
+
+        settings = Settings()
+
+        assert settings.brave_api_key is None
+
+    def test_brave_api_key_reads_bare_env_var(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """brave_api_key is read from BRAVE_API_KEY (no PYKOCLAW_ prefix)."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("PYKOCLAW_BRAVE_API_KEY", raising=False)
+        monkeypatch.setenv("BRAVE_API_KEY", "test-key-bare")
+
+        settings = Settings()
+
+        assert settings.brave_api_key == "test-key-bare"
+
+    def test_brave_api_key_reads_prefixed_env_var(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """brave_api_key is read from PYKOCLAW_BRAVE_API_KEY."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("BRAVE_API_KEY", raising=False)
+        monkeypatch.setenv("PYKOCLAW_BRAVE_API_KEY", "test-key-prefixed")
+
+        settings = Settings()
+
+        assert settings.brave_api_key == "test-key-prefixed"
+
+    def test_brave_api_key_bare_takes_precedence(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When both vars are set, BRAVE_API_KEY takes precedence (first alias wins)."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("BRAVE_API_KEY", "key-bare")
+        monkeypatch.setenv("PYKOCLAW_BRAVE_API_KEY", "key-prefixed")
+
+        settings = Settings()
+
+        assert settings.brave_api_key == "key-bare"
+
+    def test_brave_api_key_reads_from_env_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """brave_api_key can be configured via .env file."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("BRAVE_API_KEY", raising=False)
+        monkeypatch.delenv("PYKOCLAW_BRAVE_API_KEY", raising=False)
+        (tmp_path / ".env").write_text("BRAVE_API_KEY=key-from-env-file\n")
+
+        settings = Settings()
+
+        assert settings.brave_api_key == "key-from-env-file"
