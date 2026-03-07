@@ -11,6 +11,7 @@ from pydantic_settings import BaseSettings
 from pykoclaw.plugins import (
     PykoClawPlugin,
     PykoClawPluginBase,
+    compose_transformers,
     load_plugins,
     run_db_migrations,
 )
@@ -96,6 +97,19 @@ def test_run_db_migrations_handles_plugin_errors() -> None:
     assert cursor.fetchone() is not None
 
 
+def test_compose_transformers_applies_plugins_in_order() -> None:
+    class PrefixPlugin(PykoClawPluginBase):
+        def transform_response(self, text: str) -> str:
+            return f"prefix:{text}"
+
+    class SuffixPlugin(PykoClawPluginBase):
+        def transform_response(self, text: str) -> str:
+            return f"{text}:suffix"
+
+    transform = compose_transformers([PrefixPlugin(), SuffixPlugin()])
+    assert transform("body") == "prefix:body:suffix"
+
+
 def test_plugin_protocol_methods() -> None:
     """Test that plugin protocol methods have correct signatures."""
 
@@ -105,9 +119,7 @@ def test_plugin_protocol_methods() -> None:
             def test_cmd() -> None:
                 pass
 
-        def get_mcp_servers(
-            self, db: sqlite3.Connection, conversation: str
-        ) -> dict[str, Any]:
+        def get_mcp_servers(self, db: Any, conversation: str) -> dict[str, Any]:
             return {"test": {"name": "test"}}
 
         def get_db_migrations(self) -> list[str]:

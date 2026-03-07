@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from importlib.metadata import entry_points
 from typing import Any, Protocol, runtime_checkable
 
@@ -34,6 +35,10 @@ class PykoClawPlugin(Protocol):
         """Return a Pydantic Settings class for plugin configuration."""
         ...
 
+    def transform_response(self, text: str) -> str:
+        """Post-process agent response text before channel formatting."""
+        ...
+
 
 class PykoClawPluginBase:
     """Base class with default no-op implementations for all plugin methods."""
@@ -50,6 +55,9 @@ class PykoClawPluginBase:
     def get_config_class(self) -> type[BaseSettings] | None:
         return None
 
+    def transform_response(self, text: str) -> str:
+        return text
+
 
 def load_plugins() -> list[PykoClawPlugin]:
     plugins: list[PykoClawPlugin] = []
@@ -62,6 +70,20 @@ def load_plugins() -> list[PykoClawPlugin]:
         except Exception:
             log.exception("Failed to load plugin %r", ep.name)
     return plugins
+
+
+def compose_transformers(plugins: list[PykoClawPlugin]) -> Callable[[str], str]:
+    """Compose plugin response transformers in plugin registration order."""
+
+    if not plugins:
+        return lambda text: text
+
+    def transform(text: str) -> str:
+        for plugin in plugins:
+            text = plugin.transform_response(text)
+        return text
+
+    return transform
 
 
 def run_db_migrations(db: DbConnection, plugins: list[PykoClawPlugin]) -> None:
