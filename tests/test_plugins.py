@@ -12,6 +12,7 @@ from pykoclaw.plugins import (
     PykoClawPlugin,
     PykoClawPluginBase,
     TransformContext,
+    compose_system_prompt_additions,
     compose_transformers,
     load_plugins,
     run_db_migrations,
@@ -105,6 +106,76 @@ def test_compose_transformers_applies_plugins_in_order_with_context() -> None:
     )
     transform = compose_transformers([PrefixPlugin(), SuffixPlugin()], ctx)
     assert transform("body") == "wa:prefix:body:suffix:.jpg,.png"
+
+
+def test_get_system_prompt_addition_base_returns_none() -> None:
+    """PykoClawPluginBase default returns None — no addition."""
+    plugin = PykoClawPluginBase()
+    assert plugin.get_system_prompt_addition() is None
+
+
+def test_get_system_prompt_addition_custom_plugin() -> None:
+    """A plugin can return a non-empty string addition."""
+
+    class GreetPlugin(PykoClawPluginBase):
+        def get_system_prompt_addition(self) -> str | None:
+            return "Always greet users warmly."
+
+    assert GreetPlugin().get_system_prompt_addition() == "Always greet users warmly."
+
+
+def test_compose_system_prompt_additions_no_plugins() -> None:
+    assert compose_system_prompt_additions([]) is None
+
+
+def test_compose_system_prompt_additions_all_none() -> None:
+    """All plugins returning None → result is None."""
+    plugins: list[PykoClawPlugin] = [PykoClawPluginBase(), PykoClawPluginBase()]
+    assert compose_system_prompt_additions(plugins) is None
+
+
+def test_compose_system_prompt_additions_single_plugin() -> None:
+    class AddPlugin(PykoClawPluginBase):
+        def get_system_prompt_addition(self) -> str | None:
+            return "Use full paths."
+
+    result = compose_system_prompt_additions([AddPlugin()])
+    assert result == "Use full paths."
+
+
+def test_compose_system_prompt_additions_multiple_plugins() -> None:
+    """Multiple plugins with additions are joined by a blank line."""
+
+    class PluginA(PykoClawPluginBase):
+        def get_system_prompt_addition(self) -> str | None:
+            return "Instruction A."
+
+    class PluginB(PykoClawPluginBase):
+        def get_system_prompt_addition(self) -> str | None:
+            return None  # silent — skipped
+
+    class PluginC(PykoClawPluginBase):
+        def get_system_prompt_addition(self) -> str | None:
+            return "Instruction C."
+
+    result = compose_system_prompt_additions([PluginA(), PluginB(), PluginC()])
+    assert result == "Instruction A.\n\nInstruction C."
+
+
+def test_compose_system_prompt_additions_empty_string_skipped() -> None:
+    """Plugins returning an empty string are treated as silent."""
+
+    class EmptyPlugin(PykoClawPluginBase):
+        def get_system_prompt_addition(self) -> str | None:
+            return ""
+
+    assert compose_system_prompt_additions([EmptyPlugin()]) is None
+
+
+def test_plugin_base_default_includes_system_prompt_addition() -> None:
+    """Verifies the full set of default method values including the new one."""
+    plugin = PykoClawPluginBase()
+    assert plugin.get_system_prompt_addition() is None
 
 
 def test_plugin_protocol_methods() -> None:
