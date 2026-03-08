@@ -39,10 +39,14 @@ uv tool install pykoclaw@git+https://github.com/akaihola/pykoclaw.git
 uv tool install pykoclaw@git+https://github.com/akaihola/pykoclaw.git \
     --with=pykoclaw-chat@git+https://github.com/akaihola/pykoclaw-chat.git
 
-# With both plugins
+# With all currently published plugins
 uv tool install pykoclaw@git+https://github.com/akaihola/pykoclaw.git \
     --with=pykoclaw-chat@git+https://github.com/akaihola/pykoclaw-chat.git \
-    --with=pykoclaw-whatsapp@git+https://github.com/akaihola/pykoclaw-whatsapp.git
+    --with=pykoclaw-whatsapp@git+https://github.com/akaihola/pykoclaw-whatsapp.git \
+    --with=pykoclaw-acp@git+https://github.com/akaihola/pykoclaw-acp.git \
+    --with=pykoclaw-matrix@git+https://github.com/akaihola/pykoclaw-matrix.git \
+    --with=pykoclaw-slack@git+https://github.com/akaihola/pykoclaw-slack.git \
+    --with=pykoclaw-messaging@git+https://github.com/akaihola/pykoclaw-messaging.git
 ```
 
 Or with `uv pip install` into an existing environment:
@@ -65,8 +69,12 @@ pykoclaw scheduler        # Run the background task scheduler
 Plugins add their own subcommands (see their respective READMEs):
 
 ```bash
-pykoclaw chat <name>      # Interactive chat (pykoclaw-chat plugin)
-pykoclaw whatsapp run     # WhatsApp listener (pykoclaw-whatsapp plugin)
+pykoclaw chat <name>        # Interactive chat (pykoclaw-chat plugin)
+pykoclaw whatsapp run       # WhatsApp listener (pykoclaw-whatsapp plugin)
+pykoclaw acp                # ACP server (pykoclaw-acp plugin)
+pykoclaw matrix run         # Matrix listener (pykoclaw-matrix plugin)
+pykoclaw slack run          # Slack Socket Mode listener (pykoclaw-slack plugin)
+pykoclaw send matrix-...    # One-off channel dispatch (pykoclaw-messaging plugin)
 ```
 
 ## Configuration
@@ -111,8 +119,13 @@ The plugin interface:
 | `get_mcp_servers(db, conversation)` | Return MCP server definitions for the agent        |
 | `get_db_migrations()`               | Return SQL statements to run on startup            |
 | `get_config_class()`                | Return a Pydantic Settings class for plugin config |
-| `on_message(message)`               | Handle incoming messages                           |
-| `on_startup()` / `on_shutdown()`    | Lifecycle hooks                                    |
+| `transform_response(text, ctx)`     | Post-process agent text for a target channel       |
+
+The `transform_response()` hook is used by plugins such as `pykoclaw-pykofinder`
+to rewrite channel-visible output after the agent replies but before
+channel-specific delivery. A typical use case is converting local Markdown file
+links into Pykofinder viewer URLs like `/f/?path=%2Fabsolute%2Fpath%2Fnote.md`
+for channels that cannot open host-local paths directly.
 
 ## Scheduling
 
@@ -137,9 +150,9 @@ different channel (e.g., schedule from ACP, deliver to WhatsApp).
 ### Delivery queue
 
 After each task runs, the scheduler writes results to a `delivery_queue` table.
-Channel plugins (WhatsApp, ACP) poll this queue and deliver messages through
-their native transports. This decouples the scheduler from channel-specific
-send logic.
+Channel plugins (WhatsApp, ACP, Matrix, Slack) poll this queue and deliver
+messages through their native transports. This decouples the scheduler from
+channel-specific send logic.
 
 Run the scheduler as a long-lived process:
 
@@ -149,11 +162,14 @@ pykoclaw scheduler
 
 ## Plugins
 
-| Package                                                              | Description                            |
-| -------------------------------------------------------------------- | -------------------------------------- |
-| [pykoclaw-chat](https://github.com/akaihola/pykoclaw-chat)           | Interactive terminal chat              |
-| [pykoclaw-whatsapp](https://github.com/akaihola/pykoclaw-whatsapp)   | WhatsApp integration                   |
-| [pykoclaw-acp](https://github.com/akaihola/pykoclaw-acp)             | Agent Client Protocol (ACP) server     |
-| [pykoclaw-messaging](https://github.com/akaihola/pykoclaw-messaging) | Shared channel-agnostic dispatch       |
+| Package                                                              | Type           | Description                               |
+| -------------------------------------------------------------------- | -------------- | ----------------------------------------- |
+| [pykoclaw-chat](https://github.com/akaihola/pykoclaw-chat)           | Plugin         | Interactive terminal chat                 |
+| [pykoclaw-whatsapp](https://github.com/akaihola/pykoclaw-whatsapp)   | Plugin         | WhatsApp integration                      |
+| [pykoclaw-acp](https://github.com/akaihola/pykoclaw-acp)             | Plugin         | Agent Client Protocol (ACP) server        |
+| [pykoclaw-matrix](https://github.com/akaihola/pykoclaw-matrix)       | Plugin         | Matrix/Element integration                |
+| [pykoclaw-slack](https://github.com/akaihola/pykoclaw-slack)         | Plugin         | Slack Socket Mode gateway                 |
+| [pykoclaw-messaging](https://github.com/akaihola/pykoclaw-messaging) | Plugin/library | Shared dispatch plus `pykoclaw send` CLI  |
+| [pykoclaw-vision](https://github.com/akaihola/pykoclaw-vision)       | Library        | Shared Gemini image-analysis MCP tooling  |
 
 [Brave Search API]: https://brave.com/search/api/
