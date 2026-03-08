@@ -49,6 +49,15 @@ class PykoClawPlugin(Protocol):
         """Post-process agent response text before channel formatting."""
         ...
 
+    def get_system_prompt_addition(self) -> str | None:
+        """Return an optional block of text to append to the agent system prompt.
+
+        Return ``None`` (or an empty string) to add nothing.  Plugins that
+        need the agent to follow specific conventions (e.g. file-path
+        formatting) should return a concise instruction paragraph here.
+        """
+        ...
+
 
 class PykoClawPluginBase:
     """Base class with default no-op implementations for all plugin methods."""
@@ -70,6 +79,9 @@ class PykoClawPluginBase:
 
     def transform_response(self, text: str, ctx: TransformContext) -> str:
         return text
+
+    def get_system_prompt_addition(self) -> str | None:
+        return None
 
 
 def load_plugins() -> list[PykoClawPlugin]:
@@ -99,6 +111,20 @@ def compose_transformers(
         return text
 
     return transform
+
+
+def compose_system_prompt_additions(plugins: list[PykoClawPlugin]) -> str | None:
+    """Collect non-empty system prompt additions from all plugins.
+
+    Returns a single string with each addition separated by a blank line,
+    or ``None`` if no plugin contributes anything.
+    """
+    parts = [
+        addition
+        for plugin in plugins
+        if (addition := plugin.get_system_prompt_addition())
+    ]
+    return "\n\n".join(parts) if parts else None
 
 
 def run_db_migrations(db: DbConnection, plugins: list[PykoClawPlugin]) -> None:
