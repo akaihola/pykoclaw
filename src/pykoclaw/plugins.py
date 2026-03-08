@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from importlib.metadata import entry_points
 from typing import Any, Protocol, runtime_checkable
 
@@ -15,27 +16,36 @@ from pykoclaw.db import DbConnection
 log = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True, slots=True)
+class TransformContext:
+    """Channel-specific response transform context."""
+
+    channel_prefix: str
+    native_file_extensions: frozenset[str]
+
+    def supports_extension(self, suffix: str) -> bool:
+        return suffix.lower() in self.native_file_extensions
+
+
 @runtime_checkable
 class PykoClawPlugin(Protocol):
     """Protocol that all pykoclaw plugins must satisfy."""
 
-    def register_commands(self, group: click.Group) -> None:
-        """Register CLI commands with the Click group."""
+    def register_commands(self, group: click.Group) -> None: ...
+
+    def get_mcp_servers(
+        self, db: DbConnection, conversation: str
+    ) -> dict[str, Any]: ...
+
+    def get_db_migrations(self) -> list[str]: ...
+
+    def get_config_class(self) -> type[BaseSettings] | None: ...
+
+    def native_file_extensions(self) -> frozenset[str]:
+        """Return file suffixes the channel can deliver natively from disk."""
         ...
 
-    def get_mcp_servers(self, db: DbConnection, conversation: str) -> dict[str, Any]:
-        """Return MCP server definitions for this plugin."""
-        ...
-
-    def get_db_migrations(self) -> list[str]:
-        """Return SQL statements for database migrations."""
-        ...
-
-    def get_config_class(self) -> type[BaseSettings] | None:
-        """Return a Pydantic Settings class for plugin configuration."""
-        ...
-
-    def transform_response(self, text: str) -> str:
+    def transform_response(self, text: str, ctx: TransformContext) -> str:
         """Post-process agent response text before channel formatting."""
         ...
 
@@ -55,7 +65,10 @@ class PykoClawPluginBase:
     def get_config_class(self) -> type[BaseSettings] | None:
         return None
 
-    def transform_response(self, text: str) -> str:
+    def native_file_extensions(self) -> frozenset[str]:
+        return frozenset()
+
+    def transform_response(self, text: str, ctx: TransformContext) -> str:
         return text
 
 
@@ -72,7 +85,9 @@ def load_plugins() -> list[PykoClawPlugin]:
     return plugins
 
 
-def compose_transformers(plugins: list[PykoClawPlugin]) -> Callable[[str], str]:
+def compose_transformers(
+    plugins: list[PykoClawPlugin], ctx: TransformContext
+) -> Callable[[str], str]:
     """Compose plugin response transformers in plugin registration order."""
 
     if not plugins:
@@ -80,7 +95,7 @@ def compose_transformers(plugins: list[PykoClawPlugin]) -> Callable[[str], str]:
 
     def transform(text: str) -> str:
         for plugin in plugins:
-            text = plugin.transform_response(text)
+            text = plugin.transform_response(text, ctx)
         return text
 
     return transform

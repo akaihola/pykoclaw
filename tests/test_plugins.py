@@ -11,6 +11,7 @@ from pydantic_settings import BaseSettings
 from pykoclaw.plugins import (
     PykoClawPlugin,
     PykoClawPluginBase,
+    TransformContext,
     compose_transformers,
     load_plugins,
     run_db_migrations,
@@ -27,32 +28,30 @@ def test_plugin_base_default_implementations_dont_crash() -> None:
     """Test that PykoClawPluginBase default implementations work."""
     plugin = PykoClawPluginBase()
 
-    # Test register_commands doesn't crash
     group = click.Group()
     plugin.register_commands(group)
 
-    # Test get_mcp_servers returns empty dict
     db = sqlite3.connect(":memory:")
     servers = plugin.get_mcp_servers(db, "test")
     assert servers == {}
 
-    # Test get_db_migrations returns empty list
     migrations = plugin.get_db_migrations()
     assert migrations == []
 
-    # Test get_config_class returns None
     config_cls = plugin.get_config_class()
     assert config_cls is None
 
+    assert plugin.native_file_extensions() == frozenset()
+    ctx = TransformContext(channel_prefix="test", native_file_extensions=frozenset())
+    assert plugin.transform_response("body", ctx) == "body"
+
 
 def test_plugin_base_implements_protocol() -> None:
-    """Test that PykoClawPluginBase implements PykoClawPlugin protocol."""
     plugin = PykoClawPluginBase()
     assert isinstance(plugin, PykoClawPlugin)
 
 
 def test_run_db_migrations_with_mock_plugin() -> None:
-    """Test that run_db_migrations executes SQL from plugins."""
     db = sqlite3.connect(":memory:")
 
     class MockPlugin(PykoClawPluginBase):
@@ -65,7 +64,6 @@ def test_run_db_migrations_with_mock_plugin() -> None:
     plugin = MockPlugin()
     run_db_migrations(db, [plugin])
 
-    # Verify table was created and data inserted
     cursor = db.execute("SELECT name FROM test_table")
     rows = cursor.fetchall()
     assert len(rows) == 1
@@ -73,7 +71,6 @@ def test_run_db_migrations_with_mock_plugin() -> None:
 
 
 def test_run_db_migrations_handles_plugin_errors() -> None:
-    """Test that run_db_migrations continues on plugin errors."""
     db = sqlite3.connect(":memory:")
 
     class BadPlugin(PykoClawPluginBase):
@@ -84,35 +81,33 @@ def test_run_db_migrations_handles_plugin_errors() -> None:
         def get_db_migrations(self) -> list[str]:
             return ["CREATE TABLE good_table (id INTEGER PRIMARY KEY)"]
 
-    bad_plugin = BadPlugin()
-    good_plugin = GoodPlugin()
+    run_db_migrations(db, [BadPlugin(), GoodPlugin()])
 
-    # Should not raise, should log error and continue
-    run_db_migrations(db, [bad_plugin, good_plugin])
-
-    # Verify good plugin's migration ran
     cursor = db.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='good_table'"
     )
     assert cursor.fetchone() is not None
 
 
-def test_compose_transformers_applies_plugins_in_order() -> None:
+def test_compose_transformers_applies_plugins_in_order_with_context() -> None:
     class PrefixPlugin(PykoClawPluginBase):
-        def transform_response(self, text: str) -> str:
-            return f"prefix:{text}"
+        def transform_response(self, text: str, ctx: TransformContext) -> str:
+            return f"{ctx.channel_prefix}:prefix:{text}"
 
     class SuffixPlugin(PykoClawPluginBase):
-        def transform_response(self, text: str) -> str:
-            return f"{text}:suffix"
+        def transform_response(self, text: str, ctx: TransformContext) -> str:
+            marker = ",".join(sorted(ctx.native_file_extensions)) or "none"
+            return f"{text}:suffix:{marker}"
 
-    transform = compose_transformers([PrefixPlugin(), SuffixPlugin()])
-    assert transform("body") == "prefix:body:suffix"
+    ctx = TransformContext(
+        channel_prefix="wa",
+        native_file_extensions=frozenset({".png", ".jpg"}),
+    )
+    transform = compose_transformers([PrefixPlugin(), SuffixPlugin()], ctx)
+    assert transform("body") == "wa:prefix:body:suffix:.jpg,.png"
 
 
 def test_plugin_protocol_methods() -> None:
-    """Test that plugin protocol methods have correct signatures."""
-
     class TestPlugin(PykoClawPluginBase):
         def register_commands(self, group: click.Group) -> None:
             @group.command("test_cmd")
@@ -138,16 +133,13 @@ def test_plugin_protocol_methods() -> None:
     plugin.register_commands(group)
     assert "test_cmd" in group.commands
 
-    # Test get_mcp_servers
     db = sqlite3.connect(":memory:")
     servers = plugin.get_mcp_servers(db, "test")
     assert "test" in servers
 
-    # Test get_db_migrations
     migrations = plugin.get_db_migrations()
     assert len(migrations) == 1
 
-    # Test get_config_class
     config_cls = plugin.get_config_class()
     assert config_cls is not None
     assert issubclass(config_cls, BaseSettings)
