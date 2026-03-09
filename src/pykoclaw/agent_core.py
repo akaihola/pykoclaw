@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import shutil
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
@@ -30,6 +31,15 @@ logging.getLogger("claude_agent_sdk._internal.transport.subprocess_cli").setLeve
 
 log = logging.getLogger(__name__)
 _sdk_stderr_log = logging.getLogger("claude_agent_sdk.stderr")
+
+# Base system prompt prepended to every agent call, regardless of channel or
+# context.  Keep rules here generic — no platform-specific wording.
+_BASE_SYSTEM_PROMPT = (
+    "Always format hyperlinks as [Label](URL). "
+    "Never use bare URLs, fenced code blocks, or HTML anchor tags for links. "
+    "Renderers and gateways automatically convert [Label](URL) to the "
+    "native link format of each platform."
+)
 
 
 def prompt_hash(system_prompt: str | None) -> str | None:
@@ -98,6 +108,14 @@ async def query_agent(
     def _on_stderr(line: str) -> None:
         _sdk_stderr_log.debug("[%s] %s", conversation_name, line)
 
+    # Prepend the base system prompt to any caller-supplied system prompt so
+    # the rule applies universally — scheduled tasks, Slack, Matrix, WhatsApp.
+    effective_system_prompt = (
+        f"{_BASE_SYSTEM_PROMPT}\n\n{system_prompt}"
+        if system_prompt
+        else _BASE_SYSTEM_PROMPT
+    )
+
     options = ClaudeAgentOptions(
         cli_path=shutil.which("claude"),
         cwd=str(conv_dir),
@@ -106,9 +124,16 @@ async def query_agent(
         model=model or settings.model,
         allowed_tools=list(_DEFAULT_ALLOWED_TOOLS),
         setting_sources=["project", "user"],
-        system_prompt=system_prompt,
+        system_prompt=effective_system_prompt,
         resume=resume_session_id,
-        env={"SHELL": "/bin/bash"},
+        env={
+            "SHELL": "/bin/bash",
+            **(
+                {"ENABLE_TOOL_SEARCH": os.environ["ENABLE_TOOL_SEARCH"]}
+                if "ENABLE_TOOL_SEARCH" in os.environ
+                else {}
+            ),
+        },
         stderr=_on_stderr,
         include_partial_messages=include_partial_messages,
     )
@@ -121,7 +146,7 @@ async def query_agent(
         async def _on_text(text: str) -> None:
             collected.append(AgentMessage(type="text", text=text))
 
-        sp_hash = prompt_hash(system_prompt)
+        sp_hash = prompt_hash(effective_system_prompt)
 
         async def _on_result(msg: ResultMessage) -> None:
             upsert_conversation(
