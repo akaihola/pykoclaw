@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     }
 
     data: Path = Path.home() / ".local" / "share" / "pykoclaw"
-    model: str = "claude-opus-4-6"
+    model: str = "claude-sonnet-4-6"
     cli_path: Path | None = None
     idle_timeout: int = 1800  # Worker idle timeout in seconds (default 30 min)
     # Accept BRAVE_API_KEY (no prefix) or PYKOCLAW_BRAVE_API_KEY.
