@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from importlib.metadata import entry_points
@@ -127,10 +128,24 @@ def compose_system_prompt_additions(plugins: list[PykoClawPlugin]) -> str | None
     return "\n\n".join(parts) if parts else None
 
 
+def _is_duplicate_column_error(exc: Exception) -> bool:
+    return isinstance(exc, sqlite3.OperationalError) and (
+        "duplicate column name:" in str(exc).lower()
+    )
+
+
 def run_db_migrations(db: DbConnection, plugins: list[PykoClawPlugin]) -> None:
     for plugin in plugins:
+        plugin_name = type(plugin).__name__
         for sql in plugin.get_db_migrations():
             try:
                 db.executescript(sql)
-            except Exception:
-                log.exception("Failed to run migration from %s", type(plugin).__name__)
+            except Exception as exc:
+                if _is_duplicate_column_error(exc):
+                    log.info(
+                        "Skipping already-applied migration from %s: %s",
+                        plugin_name,
+                        exc,
+                    )
+                    continue
+                log.exception("Failed to run migration from %s", plugin_name)

@@ -90,6 +90,36 @@ def test_run_db_migrations_handles_plugin_errors() -> None:
     assert cursor.fetchone() is not None
 
 
+def test_run_db_migrations_ignores_duplicate_column_errors(caplog) -> None:
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE test_table (id INTEGER PRIMARY KEY, body TEXT)")
+
+    class DuplicateColumnPlugin(PykoClawPluginBase):
+        def get_db_migrations(self) -> list[str]:
+            return [
+                "ALTER TABLE test_table ADD COLUMN body TEXT",
+                "ALTER TABLE test_table ADD COLUMN attachment_path TEXT",
+            ]
+
+    class GoodPlugin(PykoClawPluginBase):
+        def get_db_migrations(self) -> list[str]:
+            return ["CREATE TABLE good_table (id INTEGER PRIMARY KEY)"]
+
+    with caplog.at_level("INFO"):
+        run_db_migrations(db, [DuplicateColumnPlugin(), GoodPlugin()])
+
+    cursor = db.execute("PRAGMA table_info(test_table)")
+    columns = {row[1] for row in cursor.fetchall()}
+    assert "body" in columns
+    assert "attachment_path" in columns
+    assert "Skipping already-applied migration from DuplicateColumnPlugin" in caplog.text
+
+    cursor = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='good_table'"
+    )
+    assert cursor.fetchone() is not None
+
+
 def test_compose_transformers_applies_plugins_in_order_with_context() -> None:
     class PrefixPlugin(PykoClawPluginBase):
         def transform_response(self, text: str, ctx: TransformContext) -> str:
