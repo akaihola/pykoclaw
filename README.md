@@ -143,9 +143,11 @@ Tasks support two context modes:
 - **`isolated`** -- Each run starts a fresh agent session.
 - **`group`** -- Runs resume the conversation's existing session.
 
-By default, task results are delivered back to the conversation that scheduled
-them. Use the optional `target_conversation` parameter to route results to a
-different channel (e.g., schedule from ACP, deliver to WhatsApp).
+Task results are delivered to the workspace default destination when one is
+configured. Set it with `set_task_result_destination` to route future task
+results to a persistent Matrix/WhatsApp/etc. conversation. You can still use
+`target_conversation` on individual tasks to override the default for that one
+job.
 
 ### Delivery queue
 

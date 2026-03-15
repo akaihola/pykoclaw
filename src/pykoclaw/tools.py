@@ -11,11 +11,15 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 from pykoclaw.config import settings
 from pykoclaw.db import (
     DbConnection,
+    clear_default_task_result_conversation,
     create_task,
     delete_task,
     get_all_tasks,
+    get_conversation,
+    get_default_task_result_conversation,
     get_task,
     get_tasks_for_conversation,
+    set_default_task_result_conversation,
     update_task,
 )
 from pykoclaw.scheduling import compute_next_run
@@ -65,11 +69,11 @@ def make_mcp_server(db: DbConnection, conversation: str):
                     "type": "string",
                     "description": (
                         "Deliver results to a different conversation instead of the "
-                        "originating one. Use the full prefixed conversation name "
-                        '(e.g. "wa-tyko-120363...@g.us", '
-                        '"matrix-!room:server"). '
-                        "Bare identifiers without a channel prefix will be "
-                        "auto-resolved using the originating conversation's prefix."
+                        "configured default destination. Use the full prefixed "
+                        'conversation name (e.g. "wa-tyko-120363...@g.us", '
+                        '"matrix-!room:server"). Bare identifiers without a '
+                        "channel prefix will be auto-resolved using the task's "
+                        "originating conversation prefix when possible."
                     ),
                 },
             },
@@ -81,7 +85,28 @@ def make_mcp_server(db: DbConnection, conversation: str):
         schedule_type = args["schedule_type"]
         schedule_value = args["schedule_value"]
         next_run = compute_next_run(schedule_type, schedule_value)
-        target_conversation = args.get("target_conversation")
+        requested_target = args.get("target_conversation")
+        default_target = get_default_task_result_conversation(db)
+        effective_target = requested_target or default_target
+
+        if effective_target is None and not get_conversation(db, conversation):
+            effective_target = conversation
+
+        if effective_target is None:
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "No default task result destination is configured for this "
+                            "workspace, and this conversation is not a routable channel. "
+                            "Set a default with set_task_result_destination or pass "
+                            "target_conversation explicitly."
+                        ),
+                    }
+                ],
+                "isError": True,
+            }
 
         create_task(
             db,
@@ -92,14 +117,78 @@ def make_mcp_server(db: DbConnection, conversation: str):
             schedule_value=schedule_value,
             next_run=next_run,
             context_mode=args.get("context_mode", "group"),
-            target_conversation=target_conversation,
+            target_conversation=effective_target,
         )
 
         msg = f"Task {task_id} scheduled. Next run: {next_run}"
-        if target_conversation:
-            msg += f" Results will be delivered to: {target_conversation}"
+        if requested_target:
+            msg += f" Results will be delivered to: {effective_target}"
+        elif default_target:
+            msg += f" Results will be delivered to the default destination: {effective_target}"
+        else:
+            msg += f" Results will be delivered to: {effective_target}"
 
         return {"content": [{"type": "text", "text": msg}]}
+
+    @tool(
+        "set_task_result_destination",
+        "Set the default conversation that should receive future task results in this workspace.",
+        {
+            "type": "object",
+            "properties": {
+                "target_conversation": {
+                    "type": "string",
+                    "description": (
+                        "Full prefixed conversation name that should receive task results "
+                        'by default, e.g. "matrix-!room:server" or '
+                        '"wa-tyko-120363...@g.us".'
+                    ),
+                },
+            },
+            "required": ["target_conversation"],
+        },
+    )
+    async def set_task_result_destination(args: dict[str, Any]) -> dict[str, Any]:
+        target_conversation = args["target_conversation"]
+        set_default_task_result_conversation(db, target_conversation)
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        f"Default task result destination set to: {target_conversation}"
+                    ),
+                }
+            ]
+        }
+
+    @tool(
+        "clear_task_result_destination",
+        "Clear the workspace default task result destination.",
+        {"type": "object", "properties": {}},
+    )
+    async def clear_task_result_destination(args: dict[str, Any]) -> dict[str, Any]:
+        del args
+        clear_default_task_result_conversation(db)
+        return {
+            "content": [
+                {"type": "text", "text": "Default task result destination cleared."}
+            ]
+        }
+
+    @tool(
+        "get_task_result_destination",
+        "Show the workspace default task result destination, if any.",
+        {"type": "object", "properties": {}},
+    )
+    async def get_task_result_destination(args: dict[str, Any]) -> dict[str, Any]:
+        del args
+        target_conversation = get_default_task_result_conversation(db)
+        if target_conversation is None:
+            text = "No default task result destination configured."
+        else:
+            text = f"Default task result destination: {target_conversation}"
+        return {"content": [{"type": "text", "text": text}]}
 
     @tool(
         "list_tasks",
@@ -187,7 +276,74 @@ def make_mcp_server(db: DbConnection, conversation: str):
             "content": [{"type": "text", "text": f"Task {args['task_id']} cancelled."}]
         }
 
-    tools: list[Any] = [schedule_task, list_tasks, pause_task, resume_task, cancel_task]
+    @tool(
+        "session_meta",
+        dedent("""\
+        Return the current pykoclaw session file path, UUID, slug, and a
+        reusable metadata block for plans, notes, and commit footers.
+        Use this before creating commits or writing project descriptions
+        that need a session identifier."""),
+        {
+            "type": "object",
+            "properties": {},
+        },
+    )
+    async def session_meta(args: dict[str, Any]) -> dict[str, Any]:
+        conv = get_conversation(db, conversation)
+        # conversation is e.g. "acp-a1b2c3d4" or "wa-tyko" or task name
+        short_id = (
+            conversation.rsplit("-", 1)[-1][:8]
+            if "-" in conversation
+            else conversation[:8]
+        )
+        session_file = conv.session_id if conv else None
+        created_at = conv.created_at if conv else None
+
+        # Derive slug: "{timestamp}_{shortId}" when timestamp available,
+        # otherwise just the conversation name
+        slug = f"{created_at}_{short_id}" if created_at else conversation
+
+        meta = {
+            # Pi-compatible field names (CLAUDE.md references these)
+            "file": session_file,
+            "shortId": short_id,
+            "slug": slug,
+            "name": conversation,
+            # Pykoclaw-specific extras
+            "conversation": conversation,
+            "cwd": conv.cwd if conv else None,
+            "created_at": created_at,
+        }
+
+        block = "\n".join(
+            [
+                f"Pykoclaw-Session: {conversation}",
+                f"Pykoclaw-Session-Slug: {slug}",
+                f"Pykoclaw-Session-File: {session_file or 'ephemeral'}",
+                f"Pykoclaw-Session-Name: {conversation}",
+            ]
+        )
+
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps({**meta, "block": block}, indent=2),
+                }
+            ]
+        }
+
+    tools: list[Any] = [
+        schedule_task,
+        set_task_result_destination,
+        get_task_result_destination,
+        clear_task_result_destination,
+        list_tasks,
+        pause_task,
+        resume_task,
+        cancel_task,
+        session_meta,
+    ]
 
     if api_key := settings.brave_api_key:  # type: ignore[attr-defined]
 

@@ -126,6 +126,12 @@ def init_db(db_path: Path) -> ThreadSafeConnection:
             created_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS task_result_routing (
+            singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+            target_conversation TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS scheduled_tasks (
             id TEXT PRIMARY KEY,
             conversation TEXT NOT NULL,
@@ -298,6 +304,35 @@ def get_conversation(db: DbConnection, name: str) -> Conversation | None:
 def list_conversations(db: DbConnection) -> list[Conversation]:
     rows = db.execute("SELECT * FROM conversations ORDER BY created_at DESC").fetchall()
     return _rows_to(Conversation, rows)
+
+
+def set_default_task_result_conversation(
+    db: DbConnection, target_conversation: str
+) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    db.execute(
+        dedent("""\
+        INSERT INTO task_result_routing (singleton, target_conversation, updated_at)
+        VALUES (1, ?, ?)
+        ON CONFLICT(singleton) DO UPDATE SET
+            target_conversation = excluded.target_conversation,
+            updated_at = excluded.updated_at
+    """),
+        (target_conversation, now),
+    )
+    db.commit()
+
+
+def get_default_task_result_conversation(db: DbConnection) -> str | None:
+    row = db.execute(
+        "SELECT target_conversation FROM task_result_routing WHERE singleton = 1"
+    ).fetchone()
+    return row[0] if row else None
+
+
+def clear_default_task_result_conversation(db: DbConnection) -> None:
+    db.execute("DELETE FROM task_result_routing WHERE singleton = 1")
+    db.commit()
 
 
 def create_task(

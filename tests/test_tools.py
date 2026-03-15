@@ -7,7 +7,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pykoclaw.db import create_task, init_db, upsert_conversation
+from pykoclaw.db import (
+    create_task,
+    get_default_task_result_conversation,
+    get_task,
+    init_db,
+    upsert_conversation,
+)
 from pykoclaw.tools import make_mcp_server
 
 
@@ -17,15 +23,15 @@ def db(tmp_path: Path) -> sqlite3.Connection:
 
 
 def test_make_mcp_server_returns_config(db: sqlite3.Connection) -> None:
-    upsert_conversation(db, "test", "sess-1", "/tmp/test")
-    server = make_mcp_server(db, "test")
+    upsert_conversation(db, "acp-test", "sess-1", "/tmp/test")
+    server = make_mcp_server(db, "acp-test")
     assert isinstance(server, dict)
     assert server["name"] == "pykoclaw"
 
 
 def test_mcp_server_has_tools(db: sqlite3.Connection) -> None:
-    upsert_conversation(db, "test", "sess-1", "/tmp/test")
-    server = make_mcp_server(db, "test")
+    upsert_conversation(db, "acp-test", "sess-1", "/tmp/test")
+    server = make_mcp_server(db, "acp-test")
     assert "instance" in server
     instance = server["instance"]
     from mcp.types import ListToolsRequest
@@ -37,8 +43,8 @@ def test_schedule_task_schema_optional(db: sqlite3.Connection) -> None:
     """Test that schedule_task has optional target_conversation and context_mode."""
     from mcp.types import ListToolsRequest
 
-    upsert_conversation(db, "test", "sess-1", "/tmp/test")
-    server = make_mcp_server(db, "test")
+    upsert_conversation(db, "acp-test", "sess-1", "/tmp/test")
+    server = make_mcp_server(db, "acp-test")
     instance = server["instance"]
 
     handler = instance.request_handlers[ListToolsRequest]
@@ -102,8 +108,8 @@ def _call_tool(instance, name: str, arguments: dict):
 
 def test_list_tasks_schema_has_all_param(db: sqlite3.Connection) -> None:
     """list_tasks tool should expose an optional 'all' boolean parameter."""
-    upsert_conversation(db, "test", "sess-1", "/tmp/test")
-    server = make_mcp_server(db, "test")
+    upsert_conversation(db, "acp-test", "sess-1", "/tmp/test")
+    server = make_mcp_server(db, "acp-test")
     schema = _get_tool_schema(server["instance"], "list_tasks")
 
     assert "all" in schema["properties"]
@@ -114,13 +120,13 @@ def test_list_tasks_schema_has_all_param(db: sqlite3.Connection) -> None:
 
 def test_list_tasks_default_shows_current_conversation(db: sqlite3.Connection) -> None:
     """Without all=true, list_tasks only shows tasks for the current conversation."""
-    upsert_conversation(db, "conv-a", "sess-1", "/tmp/a")
-    upsert_conversation(db, "conv-b", "sess-2", "/tmp/b")
+    upsert_conversation(db, "acp-conv-a", "sess-1", "/tmp/a")
+    upsert_conversation(db, "acp-conv-b", "sess-2", "/tmp/b")
 
     create_task(
         db,
         task_id="task-a",
-        conversation="conv-a",
+        conversation="acp-conv-a",
         prompt="Task in conv-a",
         schedule_type="cron",
         schedule_value="0 9 * * *",
@@ -129,14 +135,14 @@ def test_list_tasks_default_shows_current_conversation(db: sqlite3.Connection) -
     create_task(
         db,
         task_id="task-b",
-        conversation="conv-b",
+        conversation="acp-conv-b",
         prompt="Task in conv-b",
         schedule_type="cron",
         schedule_value="0 10 * * *",
         next_run="2026-03-01T10:00:00Z",
     )
 
-    server = make_mcp_server(db, "conv-a")
+    server = make_mcp_server(db, "acp-conv-a")
     result = _call_tool(server["instance"], "list_tasks", {})
 
     text = result.content[0].text
@@ -146,13 +152,13 @@ def test_list_tasks_default_shows_current_conversation(db: sqlite3.Connection) -
 
 def test_list_tasks_all_shows_all_conversations(db: sqlite3.Connection) -> None:
     """With all=true, list_tasks shows tasks from all conversations."""
-    upsert_conversation(db, "conv-a", "sess-1", "/tmp/a")
-    upsert_conversation(db, "conv-b", "sess-2", "/tmp/b")
+    upsert_conversation(db, "acp-conv-a", "sess-1", "/tmp/a")
+    upsert_conversation(db, "acp-conv-b", "sess-2", "/tmp/b")
 
     create_task(
         db,
         task_id="task-a",
-        conversation="conv-a",
+        conversation="acp-conv-a",
         prompt="Task in conv-a",
         schedule_type="cron",
         schedule_value="0 9 * * *",
@@ -161,28 +167,28 @@ def test_list_tasks_all_shows_all_conversations(db: sqlite3.Connection) -> None:
     create_task(
         db,
         task_id="task-b",
-        conversation="conv-b",
+        conversation="acp-conv-b",
         prompt="Task in conv-b",
         schedule_type="cron",
         schedule_value="0 10 * * *",
         next_run="2026-03-01T10:00:00Z",
     )
 
-    server = make_mcp_server(db, "conv-a")
+    server = make_mcp_server(db, "acp-conv-a")
     result = _call_tool(server["instance"], "list_tasks", {"all": True})
 
     text = result.content[0].text
     assert "task-a" in text
     assert "task-b" in text
     # Conversation labels should appear when showing all
-    assert "conv-a" in text
-    assert "conv-b" in text
+    assert "acp-conv-a" in text
+    assert "acp-conv-b" in text
 
 
 def test_list_tasks_empty_with_all(db: sqlite3.Connection) -> None:
     """With all=true and no tasks anywhere, shows appropriate message."""
-    upsert_conversation(db, "test", "sess-1", "/tmp/test")
-    server = make_mcp_server(db, "test")
+    upsert_conversation(db, "acp-test", "sess-1", "/tmp/test")
+    server = make_mcp_server(db, "acp-test")
     result = _call_tool(server["instance"], "list_tasks", {"all": True})
 
     text = result.content[0].text
@@ -191,12 +197,128 @@ def test_list_tasks_empty_with_all(db: sqlite3.Connection) -> None:
 
 def test_list_tasks_empty_default(db: sqlite3.Connection) -> None:
     """Without all=true and no tasks, shows conversation-scoped message."""
-    upsert_conversation(db, "test", "sess-1", "/tmp/test")
-    server = make_mcp_server(db, "test")
+    upsert_conversation(db, "acp-test", "sess-1", "/tmp/test")
+    server = make_mcp_server(db, "acp-test")
     result = _call_tool(server["instance"], "list_tasks", {})
 
     text = result.content[0].text
     assert "this conversation" in text
+
+
+def test_schedule_task_internal_context_requires_default_or_explicit_target(
+    db: sqlite3.Connection,
+) -> None:
+    upsert_conversation(db, "scheduler-calendar-antti", "sess-1", "/tmp/test")
+    server = make_mcp_server(db, "scheduler-calendar-antti")
+
+    result = _call_tool(
+        server["instance"],
+        "schedule_task",
+        {
+            "prompt": "test",
+            "schedule_type": "once",
+            "schedule_value": "2026-03-12T00:00:00Z",
+        },
+    )
+
+    assert result.isError is False
+    assert "set_task_result_destination" in result.content[0].text
+
+
+def test_set_and_get_task_result_destination(db: sqlite3.Connection) -> None:
+    upsert_conversation(db, "acp-control", "sess-1", "/tmp/test")
+    server = make_mcp_server(db, "acp-control")
+
+    set_result = _call_tool(
+        server["instance"],
+        "set_task_result_destination",
+        {"target_conversation": "matrix-!room:server"},
+    )
+    assert "matrix-!room:server" in set_result.content[0].text
+    assert get_default_task_result_conversation(db) == "matrix-!room:server"
+
+    get_result = _call_tool(server["instance"], "get_task_result_destination", {})
+    assert "matrix-!room:server" in get_result.content[0].text
+
+
+def test_schedule_task_uses_workspace_default_destination(
+    db: sqlite3.Connection,
+) -> None:
+    upsert_conversation(db, "acp-ephemeral", "sess-1", "/tmp/test")
+    server = make_mcp_server(db, "acp-ephemeral")
+
+    _call_tool(
+        server["instance"],
+        "set_task_result_destination",
+        {"target_conversation": "matrix-!room:server"},
+    )
+
+    result = _call_tool(
+        server["instance"],
+        "schedule_task",
+        {
+            "prompt": "test",
+            "schedule_type": "once",
+            "schedule_value": "2026-03-12T00:00:00Z",
+        },
+    )
+
+    text = result.content[0].text
+    assert "default destination: matrix-!room:server" in text
+
+    task_id = text.split()[1]
+    task = get_task(db, task_id=task_id)
+    assert task is not None
+    assert task.conversation == "acp-ephemeral"
+    assert task.target_conversation == "matrix-!room:server"
+
+
+def test_schedule_task_explicit_target_overrides_workspace_default(
+    db: sqlite3.Connection,
+) -> None:
+    upsert_conversation(db, "maintenance", "sess-1", "/tmp/test")
+    server = make_mcp_server(db, "maintenance")
+
+    _call_tool(
+        server["instance"],
+        "set_task_result_destination",
+        {"target_conversation": "matrix-!room:server"},
+    )
+
+    result = _call_tool(
+        server["instance"],
+        "schedule_task",
+        {
+            "prompt": "test",
+            "schedule_type": "once",
+            "schedule_value": "2026-03-12T00:00:00Z",
+            "target_conversation": "wa-vaino-120363424040407722@g.us",
+        },
+    )
+
+    assert result.isError is False
+    assert "wa-vaino-120363424040407722@g.us" in result.content[0].text
+
+    task_id = result.content[0].text.split()[1]
+    task = get_task(db, task_id=task_id)
+    assert task is not None
+    assert task.conversation == "maintenance"
+    assert task.target_conversation == "wa-vaino-120363424040407722@g.us"
+
+
+def test_clear_task_result_destination(db: sqlite3.Connection) -> None:
+    upsert_conversation(db, "acp-control", "sess-1", "/tmp/test")
+    server = make_mcp_server(db, "acp-control")
+
+    _call_tool(
+        server["instance"],
+        "set_task_result_destination",
+        {"target_conversation": "matrix-!room:server"},
+    )
+    clear_result = _call_tool(server["instance"], "clear_task_result_destination", {})
+
+    assert "cleared" in clear_result.content[0].text
+    assert get_default_task_result_conversation(db) is None
 
 
 # --- brave_search tests ---
@@ -314,3 +436,67 @@ def test_brave_search_http_error(db: sqlite3.Connection) -> None:
 
     text = result.content[0].text
     assert "429" in text or "Too Many Requests" in text
+
+
+# --- session_meta tests ---
+
+
+def test_session_meta_returns_pi_compatible_fields(db: sqlite3.Connection) -> None:
+    """session_meta returns fields compatible with Pi session_meta extension."""
+    upsert_conversation(db, "acp-a1b2c3d4", "sess-file-path", "/tmp/test")
+    server = make_mcp_server(db, "acp-a1b2c3d4")
+    result = _call_tool(server["instance"], "session_meta", {})
+
+    meta = json.loads(result.content[0].text)
+
+    # Pi-compatible fields that CLAUDE.md references
+    assert meta["shortId"] == "a1b2c3d4"
+    assert meta["file"] == "sess-file-path"
+    assert meta["name"] == "acp-a1b2c3d4"
+    assert "slug" in meta
+
+    # Pykoclaw extras
+    assert meta["conversation"] == "acp-a1b2c3d4"
+    assert meta["cwd"] == "/tmp/test"
+    assert meta["created_at"] is not None
+
+
+def test_session_meta_block_uses_pi_prefix(db: sqlite3.Connection) -> None:
+    """Block format uses Pykoclaw-Session- prefix."""
+    upsert_conversation(db, "acp-deadbeef", "sess-123", "/tmp/test")
+    server = make_mcp_server(db, "acp-deadbeef")
+    result = _call_tool(server["instance"], "session_meta", {})
+
+    meta = json.loads(result.content[0].text)
+    block = meta["block"]
+
+    assert "Pykoclaw-Session: acp-deadbeef" in block
+    assert "Pykoclaw-Session-Slug:" in block
+    assert "Pykoclaw-Session-File: sess-123" in block
+    assert "Pykoclaw-Session-Name: acp-deadbeef" in block
+
+
+def test_session_meta_no_conversation_in_db(db: sqlite3.Connection) -> None:
+    """session_meta handles missing conversation gracefully (ephemeral session)."""
+    server = make_mcp_server(db, "acp-ephemeral")
+    result = _call_tool(server["instance"], "session_meta", {})
+
+    meta = json.loads(result.content[0].text)
+
+    assert meta["shortId"] == "ephemera"  # first 8 chars of "ephemeral"
+    assert meta["file"] is None
+    assert meta["cwd"] is None
+    assert "Pykoclaw-Session-File: ephemeral" in meta["block"]
+
+
+def test_session_meta_non_acp_conversation(db: sqlite3.Connection) -> None:
+    """session_meta works with non-ACP conversation names (e.g. wa-tyko)."""
+    upsert_conversation(db, "wa-tyko", "sess-wa", "/tmp/wa")
+    server = make_mcp_server(db, "wa-tyko")
+    result = _call_tool(server["instance"], "session_meta", {})
+
+    meta = json.loads(result.content[0].text)
+
+    assert meta["shortId"] == "tyko"  # last segment, first 8 chars
+    assert meta["conversation"] == "wa-tyko"
+    assert meta["file"] == "sess-wa"
