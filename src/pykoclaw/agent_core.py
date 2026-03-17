@@ -56,6 +56,7 @@ class AgentMessage:
     type: Literal["text", "result"]
     text: str | None = None
     session_id: str | None = None
+    is_final: bool = False
 
 
 _DEFAULT_ALLOWED_TOOLS = [
@@ -156,6 +157,10 @@ async def query_agent(
                 str(conv_dir),
                 system_prompt_hash=sp_hash,
             )
+            if msg.result:
+                collected.append(
+                    AgentMessage(type="text", text=msg.result, is_final=True)
+                )
             collected.append(
                 AgentMessage(type="result", session_id=msg.session_id, text=msg.result)
             )

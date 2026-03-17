@@ -106,9 +106,16 @@ async def _run_task_agent(
     db: DbConnection,
     data_dir: Path,
     resume_session_id: str | None,
-) -> str:
-    """Run the agent for a task, returning collected text.  Extracted for retry."""
-    result_text = ""
+) -> tuple[str, str]:
+    """Run the agent for a task.
+
+    Returns ``(delivery_text, transcript_text)`` where ``delivery_text`` prefers
+    the SDK's final result message over concatenated partial text chunks.
+    This keeps scheduled deliveries concise even if the model emits progress
+    narration while working.
+    """
+    transcript_parts: list[str] = []
+    final_result_text: str | None = None
     async for msg in query_agent(
         task.prompt,
         db=db,
@@ -117,9 +124,14 @@ async def _run_task_agent(
         resume_session_id=resume_session_id,
     ):
         if msg.type == "text" and msg.text:
-            result_text += msg.text
+            transcript_parts.append(msg.text)
+            if msg.is_final:
+                final_result_text = msg.text
             print(f"[task:{task.id}] {msg.text}")
-    return result_text
+
+    transcript_text = "".join(transcript_parts)
+    delivery_text = final_result_text if final_result_text else transcript_text
+    return delivery_text, transcript_text
 
 
 async def run_task(task: ScheduledTask, db: DbConnection, data_dir: Path) -> None:
@@ -140,12 +152,13 @@ async def run_task(task: ScheduledTask, db: DbConnection, data_dir: Path) -> Non
                 )
                 resume_session_id = None
 
+    delivery_text = ""
     result_text = ""
     error_msg = None
 
     try:
         try:
-            result_text = await _run_task_agent(task, db, data_dir, resume_session_id)
+            delivery_text, result_text = await _run_task_agent(task, db, data_dir, resume_session_id)
         except ProcessError:
             if resume_session_id is None:
                 raise  # already fresh — nothing to retry
@@ -155,14 +168,14 @@ async def run_task(task: ScheduledTask, db: DbConnection, data_dir: Path) -> Non
                 resume_session_id,
             )
             upsert_conversation(db, task.conversation, None, str(data_dir))
-            result_text = await _run_task_agent(task, db, data_dir, None)
+            delivery_text, result_text = await _run_task_agent(task, db, data_dir, None)
 
         if task.schedule_type in ("cron", "interval"):
             next_run = compute_next_run(task.schedule_type, task.schedule_value)
         else:
             next_run = None
 
-        result_summary = result_text[:200] if result_text else "Completed"
+        result_summary = delivery_text[:200] if delivery_text else (result_text[:200] if result_text else "Completed")
 
     except Exception as e:
         error_msg = str(e)
@@ -188,7 +201,7 @@ async def run_task(task: ScheduledTask, db: DbConnection, data_dir: Path) -> Non
         error=error_msg,
     )
 
-    if result_text and not error_msg:
+    if delivery_text and not error_msg:
         delivery_conversation, channel_prefix = resolve_delivery_target(task)
         enqueue_delivery(
             db,
@@ -196,7 +209,7 @@ async def run_task(task: ScheduledTask, db: DbConnection, data_dir: Path) -> Non
             task_run_log_id=None,
             conversation=delivery_conversation,
             channel_prefix=channel_prefix,
-            message=strip_reply_tags(result_text),
+            message=strip_reply_tags(delivery_text),
         )
 
 

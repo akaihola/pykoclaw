@@ -34,6 +34,7 @@ def data_dir(tmp_path: Path) -> Path:
 class _FakeMsg:
     type: str = "text"
     text: str = ""
+    is_final: bool = False
 
 
 async def _fake_agent_gen(*args, **kwargs):
@@ -483,3 +484,38 @@ def test_resolve_delivery_target_exact_suffix_match() -> None:
     # Exact match of the suffix — reuse origin
     assert conv == "wa-120363@g.us"
     assert prefix == "wa"
+
+
+async def _fake_agent_gen_partial_then_final(*args, **kwargs):
+    yield _FakeMsg(type="text", text="Let me investigate... ")
+    yield _FakeMsg(type="text", text="Done preparing. ")
+    yield _FakeMsg(type="text", text="Scheduled task result", is_final=True)
+
+
+def test_delivery_queue_uses_final_result_not_partial_narration(
+    db: sqlite3.Connection, data_dir: Path
+) -> None:
+    upsert_conversation(db, "acp-source", "sess-1", "/tmp/test")
+    create_task(
+        db,
+        task_id="t-final-only",
+        conversation="acp-source",
+        prompt="report",
+        schedule_type="once",
+        schedule_value="2020-01-01T00:00:00Z",
+        next_run="2020-01-01T00:00:00Z",
+        target_conversation="wa-5551234@s.whatsapp.net",
+    )
+
+    task = get_task(db, task_id="t-final-only")
+    assert task is not None
+
+    with patch(
+        "pykoclaw.scheduler.query_agent",
+        side_effect=_fake_agent_gen_partial_then_final,
+    ):
+        asyncio.run(run_task(task, db, data_dir))
+
+    wa_pending = get_pending_deliveries(db, "wa")
+    assert len(wa_pending) == 1
+    assert wa_pending[0].message == "Scheduled task result"
