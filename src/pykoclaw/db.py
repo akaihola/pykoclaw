@@ -140,6 +140,7 @@ def init_db(db_path: Path) -> ThreadSafeConnection:
             schedule_value TEXT NOT NULL,
             context_mode TEXT DEFAULT 'group',
             target_conversation TEXT,
+            output_mode TEXT DEFAULT 'deliver_final',
             next_run TEXT,
             last_run TEXT,
             last_result TEXT,
@@ -185,6 +186,7 @@ def init_db(db_path: Path) -> ThreadSafeConnection:
     # ALTER TABLE is a no-op if the column already exists (caught by try/except).
     _add_column(db, "scheduled_tasks", "context_mode TEXT DEFAULT 'group'")
     _add_column(db, "scheduled_tasks", "target_conversation TEXT")
+    _add_column(db, "scheduled_tasks", "output_mode TEXT DEFAULT 'deliver_final'")
     _add_column(db, "conversations", "system_prompt_hash TEXT")
 
     return db
@@ -346,14 +348,15 @@ def create_task(
     next_run: str | None,
     context_mode: str = "group",
     target_conversation: str | None = None,
+    output_mode: str = "deliver_final",
 ) -> None:
     now = datetime.now(timezone.utc).isoformat()
     db.execute(
         dedent("""\
         INSERT INTO scheduled_tasks
             (id, conversation, prompt, schedule_type, schedule_value, context_mode,
-             target_conversation, next_run, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             target_conversation, output_mode, next_run, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """),
         (
             task_id,
@@ -363,6 +366,7 @@ def create_task(
             schedule_value,
             context_mode,
             target_conversation,
+            output_mode,
             next_run,
             "active",
             now,
@@ -399,7 +403,7 @@ def update_task(db: DbConnection, task_id: str, **updates: object) -> None:
     fields = []
     values = []
 
-    for key in ["prompt", "schedule_type", "schedule_value", "next_run", "status"]:
+    for key in ["prompt", "schedule_type", "schedule_value", "next_run", "status", "output_mode"]:
         if key in updates:
             fields.append(f"{key} = ?")
             values.append(updates[key])

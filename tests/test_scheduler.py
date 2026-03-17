@@ -21,10 +21,11 @@ from pykoclaw.scheduler import run_task
 class _FakeMsg:
     type: str = "text"
     text: str = ""
+    is_final: bool = False
 
 
 async def _fake_agent_gen(*args, **kwargs):
-    yield _FakeMsg(type="text", text="Hello from agent")
+    yield _FakeMsg(type="text", text="Hello from agent", is_final=True)
 
 
 @pytest.fixture
@@ -213,3 +214,73 @@ def test_no_delivery_on_empty_result(db: sqlite3.Connection, data_dir: Path) -> 
 
     pending = get_pending_deliveries(db, "wa")
     assert len(pending) == 0
+
+
+async def _fake_agent_gen_with_partial_and_final(*args, **kwargs):
+    yield _FakeMsg(type="text", text="Let me check the files... ")
+    yield _FakeMsg(type="text", text="Now I'll prepare the summary. ")
+    yield _FakeMsg(type="text", text="Final concise summary", is_final=True)
+
+
+def test_delivery_prefers_final_result_over_partial_transcript(
+    db: sqlite3.Connection, data_dir: Path
+) -> None:
+    upsert_conversation(db, "wa-123@s.whatsapp.net", "sess-1", "/tmp/test")
+    create_task(
+        db,
+        task_id="t-final",
+        conversation="wa-123@s.whatsapp.net",
+        prompt="test prompt",
+        schedule_type="once",
+        schedule_value="2025-01-01T00:00:00+00:00",
+        next_run="2025-01-01T00:00:00+00:00",
+        context_mode="isolated",
+    )
+
+    task = get_task(db, task_id="t-final")
+    assert task is not None
+
+    with patch(
+        "pykoclaw.scheduler.query_agent",
+        side_effect=_fake_agent_gen_with_partial_and_final,
+    ):
+        asyncio.run(run_task(task, db, data_dir))
+
+    pending = get_pending_deliveries(db, "wa")
+    assert len(pending) == 1
+    assert pending[0].message == "Final concise summary"
+
+    updated_task = get_task(db, task_id="t-final")
+    assert updated_task is not None
+    assert updated_task.last_result == "Final concise summary"
+
+
+def test_create_task_defaults_to_deliver_final(db: sqlite3.Connection) -> None:
+    create_task(
+        db,
+        task_id="t-default-mode",
+        conversation="acp-test",
+        prompt="test prompt",
+        schedule_type="once",
+        schedule_value="2025-01-01T00:00:00+00:00",
+        next_run="2025-01-01T00:00:00+00:00",
+    )
+    task = get_task(db, task_id="t-default-mode")
+    assert task is not None
+    assert task.output_mode == "deliver_final"
+
+
+def test_create_task_persists_ack_only_output_mode(db: sqlite3.Connection) -> None:
+    create_task(
+        db,
+        task_id="t-ack-mode",
+        conversation="acp-test",
+        prompt="test prompt",
+        schedule_type="once",
+        schedule_value="2025-01-01T00:00:00+00:00",
+        next_run="2025-01-01T00:00:00+00:00",
+        output_mode="ack_only",
+    )
+    task = get_task(db, task_id="t-ack-mode")
+    assert task is not None
+    assert task.output_mode == "ack_only"

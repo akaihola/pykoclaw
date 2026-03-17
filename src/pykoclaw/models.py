@@ -17,6 +17,7 @@ class ScheduledTask(BaseModel):
     schedule_value: str
     context_mode: str = "group"
     target_conversation: str | None = None
+    output_mode: str = "deliver_final"
     next_run: str | None = None
     last_run: str | None = None
     last_result: str | None = None
