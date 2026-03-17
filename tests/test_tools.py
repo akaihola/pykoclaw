@@ -500,3 +500,159 @@ def test_session_meta_non_acp_conversation(db: sqlite3.Connection) -> None:
     assert meta["shortId"] == "tyko"  # last segment, first 8 chars
     assert meta["conversation"] == "wa-tyko"
     assert meta["file"] == "sess-wa"
+
+
+# ---------------------------------------------------------------------------
+# schedule_channel_report_task helper tool tests
+# ---------------------------------------------------------------------------
+
+
+def test_schedule_channel_report_task_deliver_final(db: sqlite3.Connection) -> None:
+    """Helper tool creates a task and appends the deliver_final output contract."""
+    from pykoclaw.db import set_default_task_result_conversation
+    from pykoclaw.tools import _OUTPUT_CONTRACT_DELIVER_FINAL
+
+    set_default_task_result_destination = set_default_task_result_conversation
+    set_default_task_result_destination(db, "matrix-!room:matrix.org")
+    upsert_conversation(db, "acp-test", "sess-1", "/tmp/test")
+    server = make_mcp_server(db, "acp-test")
+
+    result = _call_tool(
+        server["instance"],
+        "schedule_channel_report_task",
+        {
+            "task_description": "Fetch the feed and prepare a digest.",
+            "output_mode": "deliver_final",
+            "schedule_type": "cron",
+            "schedule_value": "0 7 * * *",
+        },
+    )
+
+    assert not result.isError
+    text = result.content[0].text
+    assert "scheduled" in text
+    assert "deliver_final" in text
+    assert "Output contract appended automatically" in text
+
+    # Verify the stored prompt contains the output contract
+    tasks = [
+        t
+        for t in __import__("pykoclaw.db", fromlist=["get_all_tasks"]).get_all_tasks(db)
+        if "Fetch the feed" in t.prompt
+    ]
+    assert len(tasks) == 1
+    assert _OUTPUT_CONTRACT_DELIVER_FINAL.strip() in tasks[0].prompt
+    assert tasks[0].output_mode == "deliver_final"
+
+
+def test_schedule_channel_report_task_ack_only(db: sqlite3.Connection) -> None:
+    """Helper tool creates ack_only task and appends the ack_only output contract."""
+    from pykoclaw.db import set_default_task_result_conversation
+    from pykoclaw.tools import _OUTPUT_CONTRACT_ACK_ONLY
+
+    set_default_task_result_conversation(db, "matrix-!room:matrix.org")
+    upsert_conversation(db, "acp-test", "sess-1", "/tmp/test")
+    server = make_mcp_server(db, "acp-test")
+
+    result = _call_tool(
+        server["instance"],
+        "schedule_channel_report_task",
+        {
+            "task_description": (
+                "Create a weekly report. Send the summary to the Slack channel."
+            ),
+            "output_mode": "ack_only",
+            "schedule_type": "cron",
+            "schedule_value": "0 8 * * 1",
+        },
+    )
+
+    assert not result.isError
+    text = result.content[0].text
+    assert "ack_only" in text
+    # No warning expected — "send" keyword present
+    assert "Warning" not in text
+
+    tasks = [
+        t
+        for t in __import__("pykoclaw.db", fromlist=["get_all_tasks"]).get_all_tasks(db)
+        if "weekly report" in t.prompt
+    ]
+    assert len(tasks) == 1
+    assert _OUTPUT_CONTRACT_ACK_ONLY.strip() in tasks[0].prompt
+    assert tasks[0].output_mode == "ack_only"
+
+
+def test_schedule_channel_report_task_ack_only_missing_send_warns(
+    db: sqlite3.Connection,
+) -> None:
+    """Helper warns when ack_only prompt has no send instructions."""
+    from pykoclaw.db import set_default_task_result_conversation
+
+    set_default_task_result_conversation(db, "matrix-!room:matrix.org")
+    upsert_conversation(db, "acp-test", "sess-1", "/tmp/test")
+    server = make_mcp_server(db, "acp-test")
+
+    result = _call_tool(
+        server["instance"],
+        "schedule_channel_report_task",
+        {
+            "task_description": "Create a report file with the weekly digest.",
+            "output_mode": "ack_only",
+            "schedule_type": "cron",
+            "schedule_value": "0 8 * * 1",
+        },
+    )
+
+    assert not result.isError
+    assert "Warning" in result.content[0].text
+
+
+def test_schedule_task_ack_only_warns_without_send_keyword(
+    db: sqlite3.Connection,
+) -> None:
+    """schedule_task warns when output_mode=ack_only and prompt has no send keyword."""
+    from pykoclaw.db import set_default_task_result_conversation
+
+    set_default_task_result_conversation(db, "matrix-!room:matrix.org")
+    upsert_conversation(db, "acp-test", "sess-1", "/tmp/test")
+    server = make_mcp_server(db, "acp-test")
+
+    result = _call_tool(
+        server["instance"],
+        "schedule_task",
+        {
+            "prompt": "Do work silently. Your final reply must be only a summary.",
+            "schedule_type": "once",
+            "schedule_value": "2099-01-01T00:00:00Z",
+            "output_mode": "ack_only",
+        },
+    )
+
+    assert not result.isError
+    assert "Warning" in result.content[0].text
+
+
+def test_schedule_task_ack_only_no_warning_with_send_keyword(
+    db: sqlite3.Connection,
+) -> None:
+    """schedule_task does not warn when ack_only prompt contains a send keyword."""
+    from pykoclaw.db import set_default_task_result_conversation
+
+    set_default_task_result_conversation(db, "matrix-!room:matrix.org")
+    upsert_conversation(db, "acp-test", "sess-1", "/tmp/test")
+    server = make_mcp_server(db, "acp-test")
+
+    result = _call_tool(
+        server["instance"],
+        "schedule_task",
+        {
+            "prompt": "Do work. Send the summary to the Slack channel. Final reply: ack only.",
+            "schedule_type": "once",
+            "schedule_value": "2099-01-01T00:00:00Z",
+            "output_mode": "ack_only",
+        },
+    )
+
+    assert not result.isError
+    assert "Warning" not in result.content[0].text

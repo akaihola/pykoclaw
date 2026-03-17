@@ -6,6 +6,36 @@ import uuid
 from textwrap import dedent
 from typing import Any
 
+# Keywords that suggest the agent is instructed to actively send a message to
+# a channel itself (required for ack_only tasks).
+_SEND_KEYWORDS = frozenset(
+    ["send", "post", "deliver", "dispatch", "message", "notify", "write to"]
+)
+
+_OUTPUT_CONTRACT_DELIVER_FINAL = dedent("""\
+
+    ---
+
+    Output contract — mandatory:
+    - Work silently. No narration. No "Now I will...", "Let me...", "Done."
+    - Your final reply must be ONLY the ready-to-send summary/report.
+    - The scheduler will deliver your final reply to the configured destination.
+    - Do NOT send any separate message yourself.
+    - If there is nothing to report, reply with a single concise "No updates" line.
+""")
+
+_OUTPUT_CONTRACT_ACK_ONLY = dedent("""\
+
+    ---
+
+    Output contract — mandatory:
+    - Work silently. No narration. No "Now I will...", "Let me...", "Done."
+    - The summary message sent to the target channel must contain only the report content.
+    - Your final reply must be ONLY a brief acknowledgement for the default destination.
+    - Do NOT repeat the full summary in the acknowledgement.
+    - Example acknowledgement: "Report sent to [channel]. Key finding: [one line]. Full report: [[path]]"
+""")
+
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from pykoclaw.config import settings
@@ -76,6 +106,17 @@ def make_mcp_server(db: DbConnection, conversation: str):
                         "originating conversation prefix when possible."
                     ),
                 },
+                "output_mode": {
+                    "type": "string",
+                    "enum": ["deliver_final", "ack_only"],
+                    "description": (
+                        '"deliver_final": scheduler delivers the task\'s final reply to '
+                        "the destination channel. "
+                        '"ack_only": use when the task sends its main summary explicitly '
+                        "to another channel; the scheduler should deliver only the final "
+                        "acknowledgement reply."
+                    ),
+                },
             },
             "required": ["prompt", "schedule_type", "schedule_value"],
         },
@@ -108,6 +149,22 @@ def make_mcp_server(db: DbConnection, conversation: str):
                 "isError": True,
             }
 
+        output_mode = args.get("output_mode", "deliver_final")
+
+        # Warn when ack_only is requested but the prompt does not mention
+        # sending a message to any channel.  The task will still be created —
+        # this is advisory only.
+        warning = ""
+        if output_mode == "ack_only":
+            prompt_lower = args["prompt"].lower()
+            if not any(kw in prompt_lower for kw in _SEND_KEYWORDS):
+                warning = (
+                    " Warning: output_mode is 'ack_only' but the prompt does not "
+                    "appear to instruct the task to send a message to a target "
+                    "channel directly. Consider adding explicit send instructions "
+                    "or using output_mode='deliver_final' instead."
+                )
+
         create_task(
             db,
             task_id=task_id,
@@ -118,9 +175,10 @@ def make_mcp_server(db: DbConnection, conversation: str):
             next_run=next_run,
             context_mode=args.get("context_mode", "group"),
             target_conversation=effective_target,
+            output_mode=output_mode,
         )
 
-        msg = f"Task {task_id} scheduled. Next run: {next_run}"
+        msg = f"Task {task_id} scheduled. Next run: {next_run}. Output mode: {output_mode}"
         if requested_target:
             msg += f" Results will be delivered to: {effective_target}"
         elif default_target:
@@ -128,7 +186,7 @@ def make_mcp_server(db: DbConnection, conversation: str):
         else:
             msg += f" Results will be delivered to: {effective_target}"
 
-        return {"content": [{"type": "text", "text": msg}]}
+        return {"content": [{"type": "text", "text": msg + warning}]}
 
     @tool(
         "set_task_result_destination",
@@ -333,8 +391,159 @@ def make_mcp_server(db: DbConnection, conversation: str):
             ]
         }
 
+    @tool(
+        "schedule_channel_report_task",
+        dedent("""\
+        Create a scheduled task that safely produces a report and/or sends a
+        channel message without duplicate delivery or exposed thinking.
+
+        Two delivery models are supported:
+
+        deliver_final — the task does all work silently and its final reply
+        (the report summary) is delivered by the scheduler to the configured
+        destination.  Use this when a single summary goes to one destination.
+
+        ack_only — the task does its work, sends the main summary to a target
+        channel directly (e.g. WhatsApp, Slack, Telegram), and its final reply
+        is only a brief acknowledgement delivered by the scheduler.  Use this
+        when a task must write a workspace report, send a rich summary to one
+        channel, and send a short "done" confirmation to your default channel.
+
+        The output contract (silent work, no narration, correct final reply) is
+        automatically appended to the prompt — you do not need to write it
+        yourself."""),
+        {
+            "type": "object",
+            "properties": {
+                "task_description": {
+                    "type": "string",
+                    "description": (
+                        "Describe what the task should do: what files to read/write, "
+                        "what to research, what summary to prepare, and (for ack_only) "
+                        "which tool to use and which channel to send the summary to."
+                    ),
+                },
+                "output_mode": {
+                    "type": "string",
+                    "enum": ["deliver_final", "ack_only"],
+                    "description": (
+                        '"deliver_final": scheduler delivers the final reply as the '
+                        "report/summary. "
+                        '"ack_only": task sends the summary itself; scheduler delivers '
+                        "only the acknowledgement."
+                    ),
+                },
+                "schedule_type": {
+                    "type": "string",
+                    "enum": ["cron", "interval", "once"],
+                    "description": (
+                        '"cron": recurring via cron expression. '
+                        '"interval": recurring every N milliseconds. '
+                        '"once": one-shot at an ISO 8601 timestamp.'
+                    ),
+                },
+                "schedule_value": {
+                    "type": "string",
+                    "description": "Cron expression, millisecond interval, or ISO 8601 timestamp.",
+                },
+                "context_mode": {
+                    "type": "string",
+                    "enum": ["group", "isolated"],
+                    "description": (
+                        '"group": agent sees conversation history (default). '
+                        '"isolated": fresh session each run.'
+                    ),
+                },
+                "target_conversation": {
+                    "type": "string",
+                    "description": (
+                        "Destination for scheduler-delivered results. "
+                        "Defaults to the workspace default destination."
+                    ),
+                },
+            },
+            "required": [
+                "task_description",
+                "output_mode",
+                "schedule_type",
+                "schedule_value",
+            ],
+        },
+    )
+    async def schedule_channel_report_task(args: dict[str, Any]) -> dict[str, Any]:
+        task_description = args["task_description"]
+        output_mode = args["output_mode"]
+
+        contract = (
+            _OUTPUT_CONTRACT_ACK_ONLY
+            if output_mode == "ack_only"
+            else _OUTPUT_CONTRACT_DELIVER_FINAL
+        )
+        full_prompt = task_description.rstrip() + contract
+
+        # Warn ack_only tasks that don't describe a direct send.
+        warning = ""
+        if output_mode == "ack_only":
+            desc_lower = task_description.lower()
+            if not any(kw in desc_lower for kw in _SEND_KEYWORDS):
+                warning = (
+                    " Warning: output_mode is 'ack_only' but the task description "
+                    "does not appear to instruct the task to send a message to a "
+                    "target channel directly. Add explicit send instructions to the "
+                    "task description."
+                )
+
+        schedule_type = args["schedule_type"]
+        schedule_value = args["schedule_value"]
+        next_run = compute_next_run(schedule_type, schedule_value)
+
+        requested_target = args.get("target_conversation")
+        default_target = get_default_task_result_conversation(db)
+        effective_target = requested_target or default_target
+
+        if effective_target is None and not get_conversation(db, conversation):
+            effective_target = conversation
+
+        if effective_target is None:
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "No default task result destination configured. "
+                            "Set one with set_task_result_destination or pass "
+                            "target_conversation explicitly."
+                        ),
+                    }
+                ],
+                "isError": True,
+            }
+
+        task_id = uuid.uuid4().hex[:8]
+        create_task(
+            db,
+            task_id=task_id,
+            conversation=conversation,
+            prompt=full_prompt,
+            schedule_type=schedule_type,
+            schedule_value=schedule_value,
+            next_run=next_run,
+            context_mode=args.get("context_mode", "group"),
+            target_conversation=effective_target,
+            output_mode=output_mode,
+        )
+
+        msg = (
+            f"Task {task_id} scheduled. Next run: {next_run}. "
+            f"Output mode: {output_mode}. "
+            f"Destination: {effective_target}. "
+            "Output contract appended automatically."
+        )
+        return {"content": [{"type": "text", "text": msg + warning}]}
+
     tools: list[Any] = [
         schedule_task,
+        schedule_channel_report_task,
         set_task_result_destination,
         get_task_result_destination,
         clear_task_result_destination,
