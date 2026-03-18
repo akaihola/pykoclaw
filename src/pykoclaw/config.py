@@ -19,6 +19,16 @@ def _build_env_files() -> tuple[str, ...]:
     1. Global XDG config dir: ``user_config_path("pykoclaw") / ".env"``
     2. Per-data-dir config: ``$PYKOCLAW_DATA/.env`` (only when env var is set)
     3. CWD ``.env``
+
+    This function is intentionally semi-public (single underscore rather than
+    fully private) so that sibling packages such as ``pykoclaw-pykofinder``
+    can share the exact same resolution logic without duplicating it.  If the
+    number of packages that need this grows, consider promoting it to a proper
+    public utility in a ``pykoclaw.config_utils`` module.
+
+    Note: ``PYKOCLAW_DATA`` is read from the *environment* at instantiation
+    time, not from any ``.env`` file.  This avoids a chicken-and-egg problem
+    (we need to know the data dir before we can locate its ``.env``).
     """
     files: list[str] = []
     # 1. Global XDG config dir (lowest priority among files)

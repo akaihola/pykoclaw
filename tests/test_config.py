@@ -33,6 +33,9 @@ class TestSettingsDefaults:
     ) -> None:
         """Test Settings.db_path property."""
         monkeypatch.chdir(tmp_path)
+        # Redirect XDG_CONFIG_HOME so a real ~/.config/pykoclaw/.env that sets
+        # PYKOCLAW_DATA doesn't shift the expected db_path.
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty-config"))
 
         settings = Settings()
 
