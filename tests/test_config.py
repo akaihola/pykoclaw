@@ -6,6 +6,7 @@ from pathlib import Path
 from textwrap import dedent
 
 import pytest
+from platformdirs import user_data_path
 
 from pykoclaw.config import Settings
 
@@ -17,13 +18,12 @@ class TestSettingsDefaults:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test Settings uses defaults when no .env file exists."""
-        # Change to temp dir with no .env file
         monkeypatch.chdir(tmp_path)
 
         settings = Settings()
 
-        assert settings.model == "claude-opus-4-6"
-        assert settings.data == Path.home() / ".local" / "share" / "pykoclaw"
+        assert settings.model == "claude-sonnet-4-6"
+        assert settings.data == user_data_path("pykoclaw", appauthor=False)
 
     def test_settings_db_path_property(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -33,22 +33,20 @@ class TestSettingsDefaults:
 
         settings = Settings()
 
-        expected = Path.home() / ".local" / "share" / "pykoclaw" / "pykoclaw.db"
+        expected = user_data_path("pykoclaw", appauthor=False) / "pykoclaw.db"
         assert settings.db_path == expected
 
 
 class TestSettingsEnvFileLoading:
-    """Test Settings loads from .env file in CWD."""
+    """Test Settings loads from configured .env files."""
 
     def test_settings_loads_from_cwd_env_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test Settings loads PYKOCLAW_MODEL from .env in CWD."""
-        # Create .env file in temp dir
         env_file = tmp_path / ".env"
         env_file.write_text("PYKOCLAW_MODEL=claude-3-sonnet\n")
 
-        # Change to temp dir
         monkeypatch.chdir(tmp_path)
 
         settings = Settings()
@@ -93,6 +91,59 @@ class TestSettingsEnvFileLoading:
         assert settings.model == "claude-3-haiku"
         assert settings.data == custom_data
 
+    def test_settings_loads_from_xdg_config_env_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Global config is read from the XDG config directory."""
+        config_home = tmp_path / "config-home"
+        config_dir = config_home / "pykoclaw"
+        config_dir.mkdir(parents=True)
+        (config_dir / ".env").write_text("PYKOCLAW_MODEL=from-xdg-config\n")
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+
+        settings = Settings()
+
+        assert settings.model == "from-xdg-config"
+
+    def test_settings_loads_from_pykoclaw_data_env_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A data-dir-local .env is loaded when PYKOCLAW_DATA points there."""
+        data_dir = tmp_path / "workspace-data"
+        data_dir.mkdir()
+        (data_dir / ".env").write_text("PYKOCLAW_MODEL=from-data-dir\n")
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("PYKOCLAW_DATA", str(data_dir))
+
+        settings = Settings()
+
+        assert settings.data == data_dir
+        assert settings.model == "from-data-dir"
+
+    def test_data_dir_env_file_overrides_global_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Per-data-dir config overrides the global XDG config file."""
+        config_home = tmp_path / "config-home"
+        config_dir = config_home / "pykoclaw"
+        config_dir.mkdir(parents=True)
+        (config_dir / ".env").write_text("PYKOCLAW_MODEL=from-global-config\n")
+
+        data_dir = tmp_path / "workspace-data"
+        data_dir.mkdir()
+        (data_dir / ".env").write_text("PYKOCLAW_MODEL=from-data-dir\n")
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+        monkeypatch.setenv("PYKOCLAW_DATA", str(data_dir))
+
+        settings = Settings()
+
+        assert settings.model == "from-data-dir"
+
 
 class TestSettingsEnvVarOverride:
     """Test environment variables override .env file values."""
@@ -134,7 +185,6 @@ class TestSettingsEnvVarOverride:
 
         settings = Settings()
 
-        # Should use env var, not .env file or default
         assert settings.model == "from-env-var"
 
 
@@ -152,8 +202,7 @@ class TestSettingsEnvFileIgnoresWrongPrefix:
 
         settings = Settings()
 
-        # Should use default, not the unprefixed MODEL var
-        assert settings.model == "claude-opus-4-6"
+        assert settings.model == "claude-sonnet-4-6"
 
     def test_settings_ignores_wrong_prefix_in_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -164,7 +213,7 @@ class TestSettingsEnvFileIgnoresWrongPrefix:
 
         settings = Settings()
 
-        assert settings.model == "claude-opus-4-6"
+        assert settings.model == "claude-sonnet-4-6"
 
 
 class TestSettingsEnvFileEncoding:
@@ -175,7 +224,6 @@ class TestSettingsEnvFileEncoding:
     ) -> None:
         """Test Settings reads UTF-8 encoded .env file."""
         env_file = tmp_path / ".env"
-        # Write UTF-8 content with special characters
         env_file.write_text("PYKOCLAW_MODEL=claude-3-sonnet-utf8-✓\n", encoding="utf-8")
 
         monkeypatch.chdir(tmp_path)
@@ -192,15 +240,13 @@ class TestSettingsMissingEnvFile:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test Settings works fine when .env doesn't exist."""
-        # Ensure no .env file exists
         assert not (tmp_path / ".env").exists()
 
         monkeypatch.chdir(tmp_path)
 
-        # Should not crash, should use defaults
         settings = Settings()
 
-        assert settings.model == "claude-opus-4-6"
+        assert settings.model == "claude-sonnet-4-6"
 
     def test_settings_works_with_empty_env_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -213,7 +259,7 @@ class TestSettingsMissingEnvFile:
 
         settings = Settings()
 
-        assert settings.model == "claude-opus-4-6"
+        assert settings.model == "claude-sonnet-4-6"
 
     def test_settings_works_with_comments_only_env_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -226,7 +272,7 @@ class TestSettingsMissingEnvFile:
 
         settings = Settings()
 
-        assert settings.model == "claude-opus-4-6"
+        assert settings.model == "claude-sonnet-4-6"
 
 
 class TestBraveApiKey:
