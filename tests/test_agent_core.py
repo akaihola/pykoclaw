@@ -49,3 +49,43 @@ def test_query_agent_include_partial_messages_default() -> None:
 
     sig = signature(query_agent)
     assert sig.parameters["include_partial_messages"].default is True
+
+
+def test_build_agent_env_disables_auto_memory() -> None:
+    """CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 is always set in the subprocess env.
+
+    Claude Code's auto-memory feature silently writes notes to
+    ~/.claude/projects/<project>/memory/MEMORY.md.  When the SDK is used as a
+    library the agent must not mutate the user's global Claude memory store, so
+    auto memory is unconditionally disabled via this env var.
+    """
+    from pykoclaw.agent_core import _build_agent_env
+
+    env = _build_agent_env()
+    assert env.get("CLAUDE_CODE_DISABLE_AUTO_MEMORY") == "1"
+
+
+def test_build_agent_env_preserves_shell() -> None:
+    """SHELL=/bin/bash is always set so Bash tool works on all platforms."""
+    from pykoclaw.agent_core import _build_agent_env
+
+    env = _build_agent_env()
+    assert env.get("SHELL") == "/bin/bash"
+
+
+def test_build_agent_env_forwards_enable_tool_search(monkeypatch: object) -> None:
+    """ENABLE_TOOL_SEARCH is forwarded when present in the host environment."""
+    from pykoclaw.agent_core import _build_agent_env
+
+    monkeypatch.setenv("ENABLE_TOOL_SEARCH", "1")  # type: ignore[attr-defined]
+    env = _build_agent_env()
+    assert env.get("ENABLE_TOOL_SEARCH") == "1"
+
+
+def test_build_agent_env_no_tool_search_when_absent(monkeypatch: object) -> None:
+    """ENABLE_TOOL_SEARCH is absent from env when not set in the host."""
+    from pykoclaw.agent_core import _build_agent_env
+
+    monkeypatch.delenv("ENABLE_TOOL_SEARCH", raising=False)  # type: ignore[attr-defined]
+    env = _build_agent_env()
+    assert "ENABLE_TOOL_SEARCH" not in env

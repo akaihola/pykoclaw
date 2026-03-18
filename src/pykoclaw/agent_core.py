@@ -93,6 +93,26 @@ _DEFAULT_ALLOWED_TOOLS = [
 ]
 
 
+def _build_agent_env() -> dict[str, str]:
+    """Return the environment dict passed to the Claude Code subprocess.
+
+    ``CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`` unconditionally disables Claude Code's
+    auto-memory feature, which would otherwise silently write notes to the user's
+    global ``~/.claude/projects/<project>/memory/MEMORY.md``.  When the SDK is
+    used as a library the agent must not mutate the caller's Claude memory store.
+
+    ``ENABLE_TOOL_SEARCH`` is forwarded from the host environment when present,
+    as it controls an experimental tool-search feature in Claude Code.
+    """
+    env: dict[str, str] = {
+        "SHELL": "/bin/bash",
+        "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+    }
+    if "ENABLE_TOOL_SEARCH" in os.environ:
+        env["ENABLE_TOOL_SEARCH"] = os.environ["ENABLE_TOOL_SEARCH"]
+    return env
+
+
 async def query_agent(
     prompt: str,
     *,
@@ -148,14 +168,7 @@ async def query_agent(
         setting_sources=["project", "user"],
         system_prompt=effective_system_prompt,
         resume=resume_session_id,
-        env={
-            "SHELL": "/bin/bash",
-            **(
-                {"ENABLE_TOOL_SEARCH": os.environ["ENABLE_TOOL_SEARCH"]}
-                if "ENABLE_TOOL_SEARCH" in os.environ
-                else {}
-            ),
-        },
+        env=_build_agent_env(),
         stderr=_on_stderr,
         include_partial_messages=include_partial_messages,
     )
