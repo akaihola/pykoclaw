@@ -19,6 +19,9 @@ class TestSettingsDefaults:
     ) -> None:
         """Test Settings uses defaults when no .env file exists."""
         monkeypatch.chdir(tmp_path)
+        # Redirect XDG_CONFIG_HOME to an empty temp dir so the real global
+        # ~/.config/pykoclaw/.env does not bleed into the test.
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty-config"))
 
         settings = Settings()
 
