@@ -32,6 +32,10 @@ logging.getLogger("claude_agent_sdk._internal.transport.subprocess_cli").setLeve
 log = logging.getLogger(__name__)
 _sdk_stderr_log = logging.getLogger("claude_agent_sdk.stderr")
 
+# The sentence Anthropic requires to be present at the start of every system
+# prompt when using OAuth tokens on Claude Max plans (gates Sonnet/Opus access).
+_CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude."
+
 # Base system prompt prepended to every agent call, regardless of channel or
 # context.  Keep rules here generic — no platform-specific wording.
 _BASE_SYSTEM_PROMPT = (
@@ -40,6 +44,23 @@ _BASE_SYSTEM_PROMPT = (
     "Renderers and gateways automatically convert [Label](URL) to the "
     "native link format of each platform."
 )
+
+
+def _build_identity_prefix(agent_name: str | None) -> str:
+    """Return the system-prompt identity block for this agent instance.
+
+    The first sentence is the OAuth-required Claude Code identity string.
+    When *agent_name* is configured a second sentence immediately reframes it:
+    "Claude Code" is the technical runtime name; the agent's real name — the
+    one users actually know — is *agent_name*.
+    """
+    if agent_name:
+        return (
+            f"{_CLAUDE_CODE_IDENTITY} "
+            f'"Claude Code" is the technical runtime name of the platform; '
+            f"your actual name — the one you use in all conversations — is {agent_name}."
+        )
+    return _CLAUDE_CODE_IDENTITY
 
 
 def prompt_hash(system_prompt: str | None) -> str | None:
@@ -109,12 +130,12 @@ async def query_agent(
     def _on_stderr(line: str) -> None:
         _sdk_stderr_log.debug("[%s] %s", conversation_name, line)
 
-    # Prepend the base system prompt to any caller-supplied system prompt so
-    # the rule applies universally — scheduled tasks, Slack, Matrix, WhatsApp.
+    # Build the full preamble: identity first (OAuth-required + name framing),
+    # then formatting rules, then any caller-supplied context.
+    identity_prefix = _build_identity_prefix(settings.agent_name)
+    base_preamble = f"{identity_prefix}\n\n{_BASE_SYSTEM_PROMPT}"
     effective_system_prompt = (
-        f"{_BASE_SYSTEM_PROMPT}\n\n{system_prompt}"
-        if system_prompt
-        else _BASE_SYSTEM_PROMPT
+        f"{base_preamble}\n\n{system_prompt}" if system_prompt else base_preamble
     )
 
     options = ClaudeAgentOptions(
