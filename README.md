@@ -79,7 +79,13 @@ pykoclaw send matrix-...    # One-off channel dispatch (pykoclaw-messaging plugi
 
 ## Configuration
 
-Settings are read from environment variables with the `PYKOCLAW_` prefix:
+Settings are read from environment variables with the `PYKOCLAW_` prefix.
+`.env` files are loaded in this order (lowest → highest priority):
+
+1. `~/.config/pykoclaw/.env` — global config (respects `XDG_CONFIG_HOME`)
+2. `$PYKOCLAW_DATA/.env` — per-workspace override (only when `PYKOCLAW_DATA` env var is set)
+3. CWD `.env`
+4. Environment variables (always win)
 
 | Variable                                        | Default                   | Description                                                       |
 | ----------------------------------------------- | ------------------------- | ----------------------------------------------------------------- |
@@ -93,6 +99,7 @@ Settings are read from environment variables with the `PYKOCLAW_` prefix:
 ```
 ~/.local/share/pykoclaw/
   pykoclaw.db                # SQLite database
+  .env                       # Per-workspace overrides (loaded when PYKOCLAW_DATA points here)
   history                    # Readline history (shared across chat sessions)
   CLAUDE.md                  # Global system prompt (user-editable)
   conversations/
