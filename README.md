@@ -134,6 +134,12 @@ channel-specific delivery. A typical use case is converting local Markdown file
 links into Pykofinder viewer URLs like `/f/?path=%2Fabsolute%2Fpath%2Fnote.md`
 for channels that cannot open host-local paths directly.
 
+The transformer is applied to **all** outgoing text: both direct agent replies
+and messages delivered from the `delivery_queue` (scheduled task results,
+`send_*_message` MCP tool calls). This ensures consistent link rewriting
+regardless of whether a message originates from a live conversation or a
+background task.
+
 ## Scheduling
 
 The agent can schedule tasks via the built-in MCP tools. Three schedule types
@@ -162,6 +168,10 @@ After each task runs, the scheduler writes results to a `delivery_queue` table.
 Channel plugins (WhatsApp, ACP, Matrix, Slack) poll this queue and deliver
 messages through their native transports. This decouples the scheduler from
 channel-specific send logic.
+
+The `response_transformer` (composed from all plugin `transform_response()`
+hooks) is applied to every queued message before it is sent, exactly as it is
+for direct agent replies.
 
 Run the scheduler as a long-lived process:
 
