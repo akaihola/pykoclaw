@@ -2,7 +2,80 @@
 
 from __future__ import annotations
 
+import sqlite3
+from dataclasses import dataclass, field
+from typing import Any
+from unittest.mock import patch
+
+import pytest
+
+from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
+
 from pykoclaw.agent_core import AgentMessage
+
+
+# ---------------------------------------------------------------------------
+# Fake SDK client (same pattern as test_sdk_consume.py)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _FakeClient:
+    """Stub ClaudeSDKClient whose receive_response yields canned messages."""
+
+    messages: list[Any] = field(default_factory=list)
+
+    async def __aenter__(self) -> "_FakeClient":
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        pass
+
+    async def query(self, prompt: str) -> None:
+        pass
+
+    async def receive_response(self):  # noqa: ANN201
+        for msg in self.messages:
+            yield msg
+
+
+def _result_msg(
+    session_id: str = "sess-1",
+    result: str = "",
+) -> ResultMessage:
+    return ResultMessage(
+        subtype="success",
+        duration_ms=100,
+        duration_api_ms=80,
+        is_error=False,
+        num_turns=1,
+        session_id=session_id,
+        result=result,
+    )
+
+
+def _assistant_msg(*texts: str) -> AssistantMessage:
+    return AssistantMessage(
+        content=[TextBlock(text=t) for t in texts],
+        model="test",
+    )
+
+
+def _make_db() -> sqlite3.Connection:
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        """
+        CREATE TABLE conversations (
+            name TEXT PRIMARY KEY,
+            session_id TEXT,
+            cwd TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            system_prompt_hash TEXT
+        );
+        """
+    )
+    return conn
 
 
 def test_agent_message_dataclass_creation() -> None:
@@ -89,3 +162,63 @@ def test_build_agent_env_no_tool_search_when_absent(monkeypatch: object) -> None
     monkeypatch.delenv("ENABLE_TOOL_SEARCH", raising=False)  # type: ignore[attr-defined]
     env = _build_agent_env()
     assert "ENABLE_TOOL_SEARCH" not in env
+
+
+# ---------------------------------------------------------------------------
+# Regression: query_agent must not yield duplicate text when ResultMessage
+# carries the same content already emitted via AssistantMessage TextBlocks.
+#
+# Production evidence (2026-03-24):
+#   - Slack DM thread D0AK314Q5EC, DB rows 606/607/609
+#   - Bot-authored rows had text body duplicated inside one stored string
+#   - Root cause: agent_core._on_result unconditionally appended msg.result
+#     as a type="text" AgentMessage even though the text was already collected
+#     by _on_text via AssistantMessage TextBlocks.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_query_agent_does_not_duplicate_text_when_result_matches_text_blocks(
+    tmp_path: Any,
+) -> None:
+    """Regression: query_agent must yield each piece of reply text exactly once.
+
+    When the SDK emits an AssistantMessage with a TextBlock containing the reply
+    AND then a ResultMessage whose .result is the same text (the normal case in
+    non-streaming mode), query_agent must NOT yield that text twice.
+
+    Before the fix, _on_result unconditionally appended msg.result as a
+    type="text" AgentMessage, causing full_text to be reply + reply.
+    """
+    from pathlib import Path
+
+    from pykoclaw.agent_core import query_agent
+
+    reply = "Hello, this is the agent reply."
+
+    fake_client = _FakeClient(
+        messages=[
+            _assistant_msg(reply),
+            _result_msg(session_id="sess-dup", result=reply),
+        ]
+    )
+
+    db = _make_db()
+
+    with patch("pykoclaw.agent_core.ClaudeSDKClient", return_value=fake_client):
+        texts: list[str] = []
+        async for msg in query_agent(
+            "question",
+            db=db,
+            data_dir=Path(tmp_path),
+            conversation_name="test-dedup",
+            include_partial_messages=False,
+        ):
+            if msg.type == "text" and msg.text:
+                texts.append(msg.text)
+
+    reply_texts = [t for t in texts if t.strip() and "---" not in t]
+    assert reply_texts == [reply], (
+        f"Expected reply text exactly once, got {reply_texts!r}. "
+        "The _on_result callback is duplicating msg.result as a text message."
+    )

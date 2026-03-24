@@ -191,7 +191,16 @@ async def query_agent(
                 str(conv_dir),
                 system_prompt_hash=sp_hash,
             )
-            if msg.result:
+            # Only use msg.result as a text fallback when _on_text was never
+            # called — i.e. the SDK emitted no AssistantMessage TextBlocks for
+            # this turn.  Unconditionally appending here would duplicate the
+            # reply: the text is already in `collected` via _on_text when the
+            # non-streaming AssistantMessage path ran (include_partial_messages
+            # =False), or via streaming deltas when it ran with True.
+            # This mirrors the guard in sdk_consume.consume_sdk_response:
+            #   ``if not had_text and message.result``
+            had_text = any(m.type == "text" and m.text for m in collected)
+            if msg.result and not had_text:
                 collected.append(
                     AgentMessage(type="text", text=msg.result, is_final=True)
                 )
