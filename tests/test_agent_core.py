@@ -222,3 +222,75 @@ async def test_query_agent_does_not_duplicate_text_when_result_matches_text_bloc
         f"Expected reply text exactly once, got {reply_texts!r}. "
         "The _on_result callback is duplicating msg.result as a text message."
     )
+
+
+# ---------------------------------------------------------------------------
+# cwd-to-data-dir: query_agent must set cwd=data_dir, not a per-conversation
+# subdirectory, and must not create conversations/{name}/ directories.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_query_agent_cwd_is_data_dir(tmp_path: Any) -> None:
+    """ClaudeAgentOptions.cwd must be set to data_dir, not conversations/{name}/."""
+    from pathlib import Path
+
+    from pykoclaw.agent_core import query_agent
+
+    fake_client = _FakeClient(
+        messages=[_result_msg(session_id="sess-cwd", result="ok")]
+    )
+    db = _make_db()
+    data_dir = Path(tmp_path) / "workspace"
+    data_dir.mkdir()
+
+    with patch("pykoclaw.agent_core.ClaudeSDKClient") as mock_cls:
+        mock_cls.return_value = fake_client
+
+        async for _ in query_agent(
+            "hello",
+            db=db,
+            data_dir=data_dir,
+            conversation_name="test-conv",
+            include_partial_messages=False,
+        ):
+            pass
+
+        # ClaudeSDKClient was called with a ClaudeAgentOptions as first arg
+        call_args = mock_cls.call_args
+        options = call_args[0][0]  # positional arg
+        assert options.cwd == str(data_dir), (
+            f"Expected cwd={data_dir}, got cwd={options.cwd}. "
+            "query_agent should pass data_dir as cwd, not a conversations/ subdir."
+        )
+
+
+@pytest.mark.asyncio
+async def test_query_agent_does_not_create_conversations_dir(tmp_path: Any) -> None:
+    """query_agent must NOT create data_dir/conversations/{name}/."""
+    from pathlib import Path
+
+    from pykoclaw.agent_core import query_agent
+
+    fake_client = _FakeClient(
+        messages=[_result_msg(session_id="sess-nodir", result="ok")]
+    )
+    db = _make_db()
+    data_dir = Path(tmp_path) / "workspace"
+    data_dir.mkdir()
+
+    with patch("pykoclaw.agent_core.ClaudeSDKClient", return_value=fake_client):
+        async for _ in query_agent(
+            "hello",
+            db=db,
+            data_dir=data_dir,
+            conversation_name="test-conv",
+            include_partial_messages=False,
+        ):
+            pass
+
+    conv_dir = data_dir / "conversations" / "test-conv"
+    assert not conv_dir.exists(), (
+        f"Directory {conv_dir} should not be created. "
+        "query_agent should not create per-conversation subdirectories."
+    )

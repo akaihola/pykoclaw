@@ -126,9 +126,6 @@ async def query_agent(
     include_partial_messages: bool = True,
 ) -> AsyncGenerator[AgentMessage, None]:
     """Send *prompt* to the Claude agent and yield response messages."""
-    conv_dir = data_dir / "conversations" / conversation_name
-    conv_dir.mkdir(parents=True, exist_ok=True)
-
     mcp_servers: dict[str, Any] = {
         "pykoclaw": make_mcp_server(db, conversation_name),
     }
@@ -160,7 +157,7 @@ async def query_agent(
 
     options = ClaudeAgentOptions(
         cli_path=shutil.which("claude"),
-        cwd=str(conv_dir),
+        cwd=str(data_dir),
         permission_mode="bypassPermissions",
         mcp_servers=mcp_servers,
         model=model or settings.model,
@@ -188,7 +185,7 @@ async def query_agent(
                 db,
                 conversation_name,
                 msg.session_id,
-                str(conv_dir),
+                str(data_dir),
                 system_prompt_hash=sp_hash,
             )
             # Only use msg.result as a text fallback when _on_text was never
