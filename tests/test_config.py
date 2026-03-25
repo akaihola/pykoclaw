@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from textwrap import dedent
 
@@ -9,6 +10,19 @@ import pytest
 from platformdirs import user_data_path
 
 from pykoclaw.config import Settings
+
+
+@pytest.fixture(autouse=True)
+def _clean_pykoclaw_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove all PYKOCLAW_* and BRAVE_API_KEY env vars before each test.
+
+    Pydantic Settings gives env vars higher precedence than .env files.
+    Without this, any PYKOCLAW_DATA (or similar) inherited from the outer
+    shell silently overrides the values the test expects.
+    """
+    for key in list(os.environ):
+        if key.startswith("PYKOCLAW_") or key == "BRAVE_API_KEY":
+            monkeypatch.delenv(key)
 
 
 class TestSettingsDefaults:
