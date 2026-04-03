@@ -105,7 +105,10 @@ def _build_agent_env() -> dict[str, str]:
     as it controls an experimental tool-search feature in Claude Code.
     """
     env: dict[str, str] = {
-        "SHELL": "/bin/bash",
+        # Inherit SHELL from the process environment so NixOS and other
+        # non-FHS systems that lack /bin/bash use the correct shell path.
+        # Fall back to /bin/bash only when SHELL is unset (standard FHS).
+        "SHELL": os.environ.get("SHELL", "/bin/bash"),
         "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
     }
     if "ENABLE_TOOL_SEARCH" in os.environ:
